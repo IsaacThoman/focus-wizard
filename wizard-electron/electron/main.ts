@@ -58,18 +58,19 @@ function createSettingsWindow(mode: 'setup' | 'settings' = 'settings') {
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  const windowSize = 220
+  const windowWidth = 246
+  const windowHeight = 369
   const margin = 20
   
   win = new BrowserWindow({
-    width: windowSize,
-    height: windowSize,
-    minWidth: windowSize,
-    maxWidth: windowSize,
-    minHeight: windowSize,
-    maxHeight: windowSize,
-    x: width - windowSize - margin,
-    y: height - windowSize - margin,
+    width: windowWidth,
+    height: windowHeight,
+    minWidth: windowWidth,
+    maxWidth: windowWidth,
+    minHeight: windowHeight,
+    maxHeight: windowHeight,
+    x: width - windowWidth - margin,
+    y: height - windowHeight - margin,
     alwaysOnTop: true,
     resizable: false,
     minimizable: false,

@@ -7,15 +7,16 @@ import { SpriteSheet, SpriteManager } from './sprites'
 import './App.css'
 
 const PRODUCTIVITY_ENDPOINT = 'http://localhost:8000/getProductivityConfidence'
-const SCREENSHOT_INTERVAL_MS = 20_000
-const CANVAS_SIZE = 128
+const SCREENSHOT_INTERVAL_MS = 2_500
+const CANVAS_WIDTH = 80
+const CANVAS_HEIGHT = 120
 
 export type WizardEmotion = 'happy' | 'neutral' | 'mad'
 
 const EMOTION_ROW: Record<WizardEmotion, number> = {
-  happy: 0,
-  neutral: 1,
-  mad: 2,
+  happy: 1,
+  neutral: 2,
+  mad: 0,
 }
 
 /** Load an image from a URL and return a promise that resolves when loaded. */
@@ -41,6 +42,15 @@ function App() {
   const spriteManagerRef = useRef<SpriteManager | null>(null)
   const animFrameRef = useRef<number>(0)
 
+  const handleWandHover = (hovering: boolean) => {
+    const manager = spriteManagerRef.current
+    if (!manager) return
+    const wand = manager.get('wand')
+    if (wand && wand.kind === 'animated') {
+      wand.row = hovering ? 1 : 0
+    }
+  }
+
   const handleWandAreaClick = () => {
     window.focusWizard?.openSettings()
   }
@@ -60,15 +70,15 @@ function App() {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    canvas.width = CANVAS_SIZE
-    canvas.height = CANVAS_SIZE
+    canvas.width = CANVAS_WIDTH
+    canvas.height = CANVAS_HEIGHT
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
     ctx.imageSmoothingEnabled = false
 
-    const manager = new SpriteManager(CANVAS_SIZE, CANVAS_SIZE)
+    const manager = new SpriteManager(CANVAS_WIDTH, CANVAS_HEIGHT)
     spriteManagerRef.current = manager
 
     let cancelled = false
@@ -80,10 +90,10 @@ function App() {
         if (cancelled) return
 
         const potSheet = new SpriteSheet(potImg, 80, 128, { frameCount: 4 })
-        const potX = Math.floor((CANVAS_SIZE - 80) / 2)
-        const potY = CANVAS_SIZE - 128
+        const potX = Math.floor((CANVAS_WIDTH - 80) / 2)
+        const potY = CANVAS_HEIGHT - 128
         manager.addAnimated('pot', potSheet, potX, potY, {
-          fps: 6,
+          fps: 5,
           loop: true,
           playing: true,
           z: 0,
@@ -95,20 +105,36 @@ function App() {
         if (cancelled) return
 
         const wizardSheet = new SpriteSheet(wizardImg, 80, 128)
-        const wizX = Math.floor((CANVAS_SIZE - 80) / 2)
-        const wizY = CANVAS_SIZE - 128
+        const wizX = Math.floor((CANVAS_WIDTH - 80) / 2)
+        const wizY = CANVAS_HEIGHT - 128
         manager.addAnimated('wizard', wizardSheet, wizX, wizY, {
-          fps: 6,
+          fps: 5,
           loop: true,
           playing: true,
           row: EMOTION_ROW[emotion],
           z: 1,
         })
+
+        // Load wand-hand sprite sheet (160x256, 80x128 frames = 2 cols x 2 rows)
+        // Row 0 = idle wand, Row 1 = sparkle wand (on hover)
+        const wandImg = await loadImage(spriteUrl('wand-hand.png'))
+        if (cancelled) return
+
+        const wandSheet = new SpriteSheet(wandImg, 80, 128)
+        const wandX = Math.floor((CANVAS_WIDTH - 80) / 2)
+        const wandY = CANVAS_HEIGHT - 128
+        manager.addAnimated('wand', wandSheet, wandX, wandY, {
+          fps: 2,
+          loop: true,
+          playing: true,
+          row: 0,
+          z: 2,
+        })
       } catch (err) {
         console.error('Failed to load sprites:', err)
         if (!cancelled) {
           ctx.fillStyle = '#000'
-          ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
         }
       }
     }
@@ -174,9 +200,9 @@ function App() {
           setProductivityConfidence(confidence)
 
           // Drive wizard emotion from productivity score
-          if (confidence >= 0.6) {
+          if (confidence >= 0.8) {
             setEmotion('happy')
-          } else if (confidence >= 0.3) {
+          } else if (confidence >= 0.2) {
             setEmotion('neutral')
           } else {
             setEmotion('mad')
@@ -207,12 +233,14 @@ function App() {
           <canvas 
             ref={canvasRef} 
             className="pixel-canvas" 
-            width={CANVAS_SIZE} 
-            height={CANVAS_SIZE}
+            width={CANVAS_WIDTH} 
+            height={CANVAS_HEIGHT}
             style={{ cursor: 'default' }}
           />
           <div 
             className="wand-hotspot"
+            onMouseEnter={() => handleWandHover(true)}
+            onMouseLeave={() => handleWandHover(false)}
             onClick={handleWandAreaClick}
           />
         </div>
