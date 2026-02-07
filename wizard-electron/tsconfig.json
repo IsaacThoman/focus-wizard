@@ -2,7 +2,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["dist-electron/shared/*"],
+      "@shared/*": ["../shared/*"],
       "zod": ["./node_modules/zod"]
     },
     "target": "ES2020",
@@ -25,6 +25,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "electron", "dist-electron/shared"],
+  "include": ["src", "electron", "../shared"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

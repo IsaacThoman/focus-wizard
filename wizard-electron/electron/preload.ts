@@ -32,7 +32,6 @@ function createListener(channel: string) {
   }
 }
 
-contextBridge.exposeInMainWorld('wizardAPI', {
   capturePageScreenshot: () =>
     ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
   openSettings: () =>
@@ -76,3 +75,5 @@ contextBridge.exposeInMainWorld('focusWizard', {
   quitApp: () =>
     ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
 })
+
+contextBridge.exposeInMainWorld('wizardAPI', {

@@ -1,5 +1,5 @@
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell } from 'electron'
 import 'dotenv/config'
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { BridgeManager, FocusData } from './bridge-manager'
@@ -147,10 +147,6 @@ app.on('activate', () => {
   }
 })
 
-app.on('before-quit', () => {
-  bridge?.stop()
-})
-
 app.whenReady().then(createSetupWindow)
 
 ipcMain.handle('focus-wizard:capture-page-screenshot', async () => {
@@ -187,6 +183,14 @@ ipcMain.handle('focus-wizard:start-session', () => {
   } else {
     win.focus()
   }
+})
+
+ipcMain.handle('focus-wizard:quit-app', () => {
+  app.quit()
+})
+
+ipcMain.handle('focus-wizard:open-wallet-page', () => {
+  shell.openExternal('http://localhost:8000/wallet')
 })
 
 ipcMain.handle('focus-wizard:hide-window', () => {
@@ -305,4 +309,3 @@ ipcMain.on('frame:data', (_event, timestampUs: number, data: Buffer) => {
 ipcMain.handle('focus-wizard:quit-app', () => {
   app.quit()
 })
-

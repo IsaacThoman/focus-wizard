@@ -6,5 +6,6 @@ interface Window {
     openSettings: () => Promise<void>
     startSession: () => Promise<void>
     quitApp: () => Promise<void>
+    openWalletPage: () => Promise<void>
   }
 }

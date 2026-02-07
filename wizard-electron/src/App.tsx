@@ -2,58 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import {
   getProductivityConfidenceResponseSchema,
   type GetProductivityConfidenceRequest,
-} from '../dist-electron/shared/productivitySchemas'
+} from '@shared/productivitySchemas'
 import './App.css'
 
 const PRODUCTIVITY_ENDPOINT = 'http://localhost:8000/getProductivityConfidence'
 const SCREENSHOT_INTERVAL_MS = 20_000
 
 function App() {
-  const [showTitlebar, setShowTitlebar] = useState(false)
   const [productivityConfidence, setProductivityConfidence] = useState<number | null>(null)
   const [currentSprite, setCurrentSprite] = useState('wizard-happy.png')
-  const [isHoveringWand, setIsHoveringWand] = useState(false)
-
-  const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const screenshotInFlightRef = useRef(false)
-
-  useEffect(() => {
-    const showElements = () => {
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current)
-      }
-      setShowTitlebar(true)
-    }
-
-    const scheduleHide = () => {
-      hideTimerRef.current = setTimeout(() => {
-        setShowTitlebar(false)
-      }, 5000)
-    }
-
-    document.body.addEventListener('mouseenter', showElements, true)
-    document.body.addEventListener('mousemove', showElements, true)
-    document.body.addEventListener('mouseleave', scheduleHide, true)
-
-    return () => {
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current)
-      }
-      document.body.removeEventListener('mouseenter', showElements, true)
-      document.body.removeEventListener('mousemove', showElements, true)
-      document.body.removeEventListener('mouseleave', scheduleHide, true)
-    }
-  }, [])
-
-  const handleCanvasMouseEnter = () => {
-    setCurrentSprite('wizard-wand.png')
-  }
-
-  const handleCanvasMouseLeave = () => {
-    setCurrentSprite('wizard-happy.png')
-    setIsHoveringWand(false)
-  }
 
   const handleWizardAreaMouseEnter = () => {
     setCurrentSprite('wizard-wand.png')
@@ -61,17 +20,14 @@ function App() {
 
   const handleWizardAreaMouseLeave = () => {
     setCurrentSprite('wizard-happy.png')
-    setIsHoveringWand(false)
   }
 
   const handleWandAreaMouseEnter = () => {
     setCurrentSprite('wizard-wand-sparkle.png')
-    setIsHoveringWand(true)
   }
 
   const handleWandAreaMouseLeave = () => {
     setCurrentSprite('wizard-wand.png')
-    setIsHoveringWand(false)
   }
 
   const handleWandAreaClick = () => {
