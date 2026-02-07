@@ -11,6 +11,8 @@ const SCREENSHOT_INTERVAL_MS = 20_000
 function App() {
   const [showTitlebar, setShowTitlebar] = useState(false)
   const [productivityConfidence, setProductivityConfidence] = useState<number | null>(null)
+  const [currentSprite, setCurrentSprite] = useState('wizard-happy.png')
+  const [isHoveringWand, setIsHoveringWand] = useState(false)
 
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -44,6 +46,38 @@ function App() {
     }
   }, [])
 
+  const handleCanvasMouseEnter = () => {
+    setCurrentSprite('wizard-wand.png')
+  }
+
+  const handleCanvasMouseLeave = () => {
+    setCurrentSprite('wizard-happy.png')
+    setIsHoveringWand(false)
+  }
+
+  const handleWizardAreaMouseEnter = () => {
+    setCurrentSprite('wizard-wand.png')
+  }
+
+  const handleWizardAreaMouseLeave = () => {
+    setCurrentSprite('wizard-happy.png')
+    setIsHoveringWand(false)
+  }
+
+  const handleWandAreaMouseEnter = () => {
+    setCurrentSprite('wizard-wand-sparkle.png')
+    setIsHoveringWand(true)
+  }
+
+  const handleWandAreaMouseLeave = () => {
+    setCurrentSprite('wizard-wand.png')
+    setIsHoveringWand(false)
+  }
+
+  const handleWandAreaClick = () => {
+    window.focusWizard?.openSettings()
+  }
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -69,7 +103,7 @@ function App() {
 
     const img = new Image()
     img.decoding = 'async'
-    img.src = new URL('./sprites/wizard-happy.png', window.location.href).toString()
+    img.src = new URL(`./sprites/${currentSprite}`, window.location.href).toString()
 
     const draw = () => {
       ctx.clearRect(0, 0, 64, 64)
@@ -99,7 +133,7 @@ function App() {
       img.onload = null
       img.onerror = null
     }
-  }, [])
+  }, [currentSprite])
 
   useEffect(() => {
     let isMounted = true
@@ -157,20 +191,32 @@ function App() {
   return (
     <>
       {/* <div className={`window-titlebar ${showTitlebar ? 'visible' : ''}`} /> */}
-      {/* test*/}
       <main className="pixel-stage">
-        <canvas ref={canvasRef} className="pixel-canvas" width={64} height={64} />
+        <div 
+          className="wizard-area"
+          onMouseEnter={handleWizardAreaMouseEnter}
+          onMouseLeave={handleWizardAreaMouseLeave}
+        >
+          <canvas 
+            ref={canvasRef} 
+            className="pixel-canvas" 
+            width={64} 
+            height={64}
+            style={{ 
+              cursor: 'default'
+            }}
+          />
+          <div 
+            className="wand-hotspot"
+            onMouseEnter={handleWandAreaMouseEnter}
+            onMouseLeave={handleWandAreaMouseLeave}
+            onClick={handleWandAreaClick}
+          />
+        </div>
         <div className="confidence-pill">
           Confidence:{' '}
           {productivityConfidence === null ? '--' : productivityConfidence.toFixed(2)}
         </div>
-        <button
-          className="settings-button"
-          onClick={() => window.focusWizard?.openSettings()}
-          title="Settings"
-        >
-          ⚙️
-        </button>
       </main>
     </>
   )

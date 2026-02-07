@@ -22,8 +22,67 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
 
-let win: BrowserWindow | null
+let win: BrowserWindow | null = null
 let settingsWin: BrowserWindow | null = null
+let setupWin: BrowserWindow | null = null
+
+function createSetupWindow() {
+  if (setupWin) {
+    setupWin.focus()
+    return
+  }
+
+  setupWin = new BrowserWindow({
+    width: 500,
+    height: 700,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    title: 'Setup - Focus Wizard',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.mjs'),
+    },
+  })
+
+  setupWin.on('closed', () => {
+    setupWin = null
+  })
+
+  if (VITE_DEV_SERVER_URL) {
+    setupWin.loadURL(`${VITE_DEV_SERVER_URL}setup.html`)
+  } else {
+    setupWin.loadFile(path.join(RENDERER_DIST, 'setup.html'))
+  }
+}
+
+function createSettingsWindow() {
+  if (settingsWin) {
+    settingsWin.focus()
+    return
+  }
+
+  settingsWin = new BrowserWindow({
+    width: 500,
+    height: 700,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    title: 'Settings - Focus Wizard',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.mjs'),
+    },
+  })
+
+  settingsWin.on('closed', () => {
+    settingsWin = null
+  })
+
+  if (VITE_DEV_SERVER_URL) {
+    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html`)
+  } else {
+    settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'))
+  }
+}
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -79,11 +138,11 @@ app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+    createSetupWindow()
   }
 })
 
-app.whenReady().then(createWindow)
+app.whenReady().then(createSetupWindow)
 
 ipcMain.handle('focus-wizard:capture-page-screenshot', async () => {
   const primaryDisplay = screen.getPrimaryDisplay()
@@ -110,31 +169,14 @@ ipcMain.handle('focus-wizard:capture-page-screenshot', async () => {
 })
 
 ipcMain.handle('focus-wizard:open-settings', () => {
-  if (settingsWin) {
-    settingsWin.focus()
-    return
-  }
+  createSettingsWindow()
+})
 
-  settingsWin = new BrowserWindow({
-    width: 500,
-    height: 600,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    title: 'Settings - Focus Wizard',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
-    },
-  })
-
-  settingsWin.on('closed', () => {
-    settingsWin = null
-  })
-
-  if (VITE_DEV_SERVER_URL) {
-    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html`)
+ipcMain.handle('focus-wizard:start-session', () => {
+  if (!win) {
+    createWindow()
   } else {
-    settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'))
+    win.focus()
   }
 })
 

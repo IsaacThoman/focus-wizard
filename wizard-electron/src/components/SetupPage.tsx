@@ -23,7 +23,7 @@ interface ClickSparkle {
   distance: number
 }
 
-export function SettingsPage() {
+export function SetupPage() {
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS)
   const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([])
 
@@ -40,12 +40,9 @@ export function SettingsPage() {
     }
   }, [])
 
-  const handleSave = () => {
+  const handleStart = async () => {
     localStorage.setItem('focus-wizard-settings', JSON.stringify(settings))
-    window.close()
-  }
-
-  const handleCancel = () => {
+    await window.focusWizard?.startSession()
     window.close()
   }
 
@@ -175,7 +172,7 @@ export function SettingsPage() {
       })}
       <div className="settings-panel standalone">
         <div className="settings-header">
-          <h2>⚙ WIZARD SETTINGS ⚙</h2>
+          <h2>⚙ WIZARD SETUP ⚙</h2>
         </div>
 
         <div className="settings-content">
@@ -238,11 +235,8 @@ export function SettingsPage() {
         </div>
 
         <div className="settings-footer">
-          <button className="settings-button secondary" onClick={handleCancel}>
-            Cancel
-          </button>
-          <button className="settings-button primary" onClick={handleSave}>
-            Save
+          <button className="settings-button primary full-width" onClick={handleStart}>
+            Start
           </button>
         </div>
         <div className="settings-footer-quit">
