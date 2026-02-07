@@ -80,13 +80,13 @@ export function SetupPage() {
   }
 
   const handleWorkMinutesBlur = () => {
-    if (settings.pomodoroWorkMinutes === '' || settings.pomodoroWorkMinutes === 0) {
+    if (Number(settings.pomodoroWorkMinutes) <= 0) {
       setSettings({ ...settings, pomodoroWorkMinutes: DEFAULT_SETTINGS.pomodoroWorkMinutes })
     }
   }
 
   const handleBreakMinutesBlur = () => {
-    if (settings.pomodoroBreakMinutes === '' || settings.pomodoroBreakMinutes === 0) {
+    if (Number(settings.pomodoroBreakMinutes) <= 0) {
       setSettings({ ...settings, pomodoroBreakMinutes: DEFAULT_SETTINGS.pomodoroBreakMinutes })
     }
   }
@@ -104,7 +104,7 @@ export function SetupPage() {
   }
 
   const handleIterationsBlur = () => {
-    if (settings.pomodoroIterations === '' || settings.pomodoroIterations === 0) {
+    if (Number(settings.pomodoroIterations) <= 0) {
       setSettings({ ...settings, pomodoroIterations: DEFAULT_SETTINGS.pomodoroIterations })
     }
   }
