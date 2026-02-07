@@ -18,7 +18,7 @@ function createWindow(): void {
     height: 700,
     minWidth: 600,
     minHeight: 500,
-    title: 'Focus Wizard 🧙‍♂️',
+    title: 'Focus Wizard',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
