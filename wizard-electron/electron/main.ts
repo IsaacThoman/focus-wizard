@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -24,38 +24,8 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null = null
 let settingsWin: BrowserWindow | null = null
-let setupWin: BrowserWindow | null = null
 
-function createSetupWindow() {
-  if (setupWin) {
-    setupWin.focus()
-    return
-  }
-
-  setupWin = new BrowserWindow({
-    width: 500,
-    height: 700,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    title: 'Setup - Focus Wizard',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
-    },
-  })
-
-  setupWin.on('closed', () => {
-    setupWin = null
-  })
-
-  if (VITE_DEV_SERVER_URL) {
-    setupWin.loadURL(`${VITE_DEV_SERVER_URL}setup.html`)
-  } else {
-    setupWin.loadFile(path.join(RENDERER_DIST, 'setup.html'))
-  }
-}
-
-function createSettingsWindow() {
+function createSettingsWindow(mode: 'setup' | 'settings' = 'settings') {
   if (settingsWin) {
     settingsWin.focus()
     return
@@ -67,7 +37,7 @@ function createSettingsWindow() {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: 'Settings - Focus Wizard',
+    title: mode === 'setup' ? 'Setup - Focus Wizard' : 'Settings - Focus Wizard',
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
@@ -78,9 +48,11 @@ function createSettingsWindow() {
   })
 
   if (VITE_DEV_SERVER_URL) {
-    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html`)
+    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html?mode=${mode}`)
   } else {
-    settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'))
+    settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'), {
+      query: { mode },
+    })
   }
 }
 
@@ -138,11 +110,11 @@ app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createSetupWindow()
+    createSettingsWindow('setup')
   }
 })
 
-app.whenReady().then(createSetupWindow)
+app.whenReady().then(() => createSettingsWindow('setup'))
 
 ipcMain.handle('focus-wizard:capture-page-screenshot', async () => {
   const primaryDisplay = screen.getPrimaryDisplay()
@@ -182,5 +154,9 @@ ipcMain.handle('focus-wizard:start-session', () => {
 
 ipcMain.handle('focus-wizard:quit-app', () => {
   app.quit()
+})
+
+ipcMain.handle('focus-wizard:open-wallet-page', () => {
+  shell.openExternal('http://localhost:8000/wallet')
 })
 

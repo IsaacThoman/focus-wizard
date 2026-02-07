@@ -32,4 +32,6 @@ contextBridge.exposeInMainWorld('focusWizard', {
     ipcRenderer.invoke('focus-wizard:start-session') as Promise<void>,
   quitApp: () =>
     ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
+  openWalletPage: () =>
+    ipcRenderer.invoke('focus-wizard:open-wallet-page') as Promise<void>,
 })

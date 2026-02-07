@@ -391,3 +391,66 @@
 .settings-content::-webkit-scrollbar-thumb:hover {
   background: #a98ccc;
 }
+
+/* Solana Wallet Section */
+.wallet-status-msg {
+  font-size: 12px;
+  font-family: monospace;
+  padding: 8px;
+  text-align: center;
+  border: 2px solid;
+  margin-bottom: 12px;
+}
+
+.wallet-status-msg.info {
+  color: #d4a5ff;
+  border-color: #8b6bb7;
+  background: rgba(139, 107, 183, 0.15);
+}
+
+.wallet-status-msg.error {
+  color: #ffb3b3;
+  border-color: #a94442;
+  background: rgba(169, 68, 66, 0.15);
+}
+
+.wallet-info-row {
+  margin-bottom: 12px;
+}
+
+.wallet-info-row label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-family: monospace;
+  color: #d4a5ff;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.wallet-address-display {
+  font-size: 11px;
+  font-family: monospace;
+  color: #f4d58d;
+  word-break: break-all;
+  padding: 8px;
+  background: #0d0620;
+  border: 2px solid #8b6bb7;
+  box-shadow: inset 0 2px 0 0 rgba(0, 0, 0, 0.4);
+}
+
+.wallet-balance-display {
+  font-size: 22px;
+  font-family: monospace;
+  font-weight: bold;
+  color: #f4d58d;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+  padding: 8px 0;
+}
+
+.wallet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}

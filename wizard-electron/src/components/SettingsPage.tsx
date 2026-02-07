@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import './Settings.css'
 
 export interface SettingsData {
@@ -23,9 +23,45 @@ interface ClickSparkle {
   distance: number
 }
 
-export function SettingsPage() {
+interface WalletStatus {
+  vaultAddress: string
+  vaultBalanceSol: number
+  connectedWallet: string | null
+}
+
+const BACKEND_URL = 'http://localhost:8000'
+
+interface SettingsPageProps {
+  mode?: 'setup' | 'settings'
+}
+
+export function SettingsPage({ mode = 'settings' }: SettingsPageProps) {
+  const isSetup = mode === 'setup'
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS)
   const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([])
+  const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null)
+  const [walletLoading, setWalletLoading] = useState(false)
+  const [walletError, setWalletError] = useState<string | null>(null)
+
+  const fetchWalletStatus = useCallback(async () => {
+    setWalletLoading(true)
+    setWalletError(null)
+    try {
+      const resp = await fetch(`${BACKEND_URL}/wallet/status`)
+      if (!resp.ok) throw new Error('Backend not reachable')
+      const data = await resp.json()
+      setWalletStatus(data)
+    } catch (_e) {
+      setWalletError('Cannot reach backend. Is the Deno server running?')
+      setWalletStatus(null)
+    } finally {
+      setWalletLoading(false)
+    }
+  }, [])
+
+  const handleOpenWalletPage = () => {
+    window.focusWizard?.openWalletPage()
+  }
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -38,10 +74,18 @@ export function SettingsPage() {
         console.error('Failed to parse saved settings:', e)
       }
     }
-  }, [])
+    // Also fetch wallet status on mount
+    fetchWalletStatus()
+  }, [fetchWalletStatus])
 
   const handleSave = () => {
     localStorage.setItem('focus-wizard-settings', JSON.stringify(settings))
+    window.close()
+  }
+
+  const handleStart = async () => {
+    localStorage.setItem('focus-wizard-settings', JSON.stringify(settings))
+    await window.focusWizard?.startSession()
     window.close()
   }
 
@@ -175,7 +219,7 @@ export function SettingsPage() {
       })}
       <div className="settings-panel standalone">
         <div className="settings-header">
-          <h2>⚙ WIZARD SETTINGS ⚙</h2>
+          <h2>{isSetup ? '⚙ WIZARD SETUP ⚙' : '⚙ WIZARD SETTINGS ⚙'}</h2>
         </div>
 
         <div className="settings-content">
@@ -235,15 +279,73 @@ export function SettingsPage() {
               />
             </div>
           </section>
+
+          <section className="settings-section">
+            <h3>Solana Wallet</h3>
+            {walletLoading && (
+              <div className="wallet-status-msg info">Loading wallet status...</div>
+            )}
+            {walletError && (
+              <div className="wallet-status-msg error">{walletError}</div>
+            )}
+            {walletStatus && (
+              <>
+                <div className="wallet-info-row">
+                  <label>Wizard Vault Address</label>
+                  <div className="wallet-address-display">
+                    {walletStatus.vaultAddress}
+                  </div>
+                </div>
+                <div className="wallet-info-row">
+                  <label>Vault Balance</label>
+                  <div className="wallet-balance-display">
+                    {walletStatus.vaultBalanceSol.toFixed(4)} SOL
+                  </div>
+                </div>
+                {walletStatus.connectedWallet && (
+                  <div className="wallet-info-row">
+                    <label>Connected Wallet</label>
+                    <div className="wallet-address-display">
+                      {walletStatus.connectedWallet}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="wallet-actions">
+              <button
+                className="settings-button primary"
+                onClick={handleOpenWalletPage}
+                style={{ marginBottom: '8px' }}
+              >
+                Open Wallet in Browser
+              </button>
+              <button
+                className="settings-button secondary"
+                onClick={fetchWalletStatus}
+                disabled={walletLoading}
+              >
+                Refresh Status
+              </button>
+            </div>
+          </section>
         </div>
 
         <div className="settings-footer">
-          <button className="settings-button secondary" onClick={handleCancel}>
-            Cancel
-          </button>
-          <button className="settings-button primary" onClick={handleSave}>
-            Save
-          </button>
+          {isSetup ? (
+            <button className="settings-button primary full-width" onClick={handleStart}>
+              Start
+            </button>
+          ) : (
+            <>
+              <button className="settings-button secondary" onClick={handleCancel}>
+                Cancel
+              </button>
+              <button className="settings-button primary" onClick={handleSave}>
+                Save
+              </button>
+            </>
+          )}
         </div>
         <div className="settings-footer-quit">
           <button className="settings-button danger quit-btn" onClick={handleQuitApp}>
