@@ -1,28 +1,92 @@
 .settings-page {
   width: 100vw;
   height: 100vh;
-  background: rgba(20, 20, 25, 1);
+  background: #1a0d2e;
+  background-image: 
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.2) 2px, rgba(0, 0, 0, 0.2) 4px);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  position: relative;
+}
+
+.sparkle-background {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.sparkle-fall {
+  position: absolute;
+  top: -20px;
+  font-size: 10px;
+  animation: sparkle-falling linear infinite;
+  opacity: 0.6;
+  filter: drop-shadow(0 0 2px #f4d58d);
+}
+
+@keyframes sparkle-falling {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(100vh) rotate(180deg);
+    opacity: 0;
+  }
+}
+
+.sparkle-physics {
+  position: fixed;
+  font-size: 18px;
+  pointer-events: none;
+  z-index: 1001;
+  filter: drop-shadow(0 0 4px #f4d58d) drop-shadow(0 0 8px #f4d58d);
+  transition: opacity 0.3s ease;
+  will-change: transform, left, top;
 }
 
 .settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 13, 46, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   -webkit-app-region: no-drag;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .settings-panel {
-  background: rgba(30, 30, 35, 0.95);
- 
+  background: linear-gradient(135deg, #2d1b4e 0%, #1a0d2e 100%);
+  border-radius: 0;
+  border: 4px solid #8b6bb7;
+  box-shadow: 
+    0 0 0 2px #1a0d2e,
+    0 8px 0 0 rgba(0, 0, 0, 0.5),
+    0 8px 32px rgba(0, 0, 0, 0.8);
+  width: 90%;
+  max-width: 480px;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
 
 .settings-panel.standalone {
   width: 100%;
@@ -30,17 +94,7 @@
   max-height: 100vh;
   height: 100vh;
   border-radius: 0;
-  border: none;
-} backdrop-filter: blur(20px);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  width: 90%;
-  max-width: 480px;
-  max-height: 80vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
 }
 
 .settings-header {
@@ -48,45 +102,82 @@
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 4px solid #8b6bb7;
+  background: linear-gradient(180deg, #3d2963 0%, #2d1b4e 100%);
+  position: relative;
+}
+
+.settings-header::after {
+  content: '⭐✨⭐';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 .settings-header h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.95);
+  font-size: 24px;
+  font-weight: 700;
+  font-family: monospace;
+  color: #f4d58d;
+  text-shadow: 
+    2px 2px 0 #8b6bb7,
+    4px 4px 0 rgba(0, 0, 0, 0.5);
+  letter-spacing: 2px;
+  position: relative;
+  z-index: 1;
 }
 
 .settings-close {
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 24px;
+  background: #8b6bb7;
+  border: 3px solid #f4d58d;
+  color: #f4d58d;
+  font-size: 20px;
+  font-weight: bold;
   cursor: pointer;
   padding: 0;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  transition: all 0.2s;
+  font-family: monospace;
+  transition: all 0.1s;
+  box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.4);
+  position: relative;
+  top: 0;
+  z-index: 1;
 }
 
 .settings-close:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.9);
+  background: #a98ccc;
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.4);
+}
+
+.settings-close:active {
+  transform: translateY(4px);
+  box-shadow: none;
 }
 
 .settings-content {
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+  background: #1a0d2e;
 }
 
 .settings-section {
   margin-bottom: 32px;
+  padding: 16px;
+  background: rgba(45, 27, 78, 0.5);
+  border: 3px solid #8b6bb7;
+  border-radius: 0;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 .settings-section:last-child {
@@ -95,9 +186,18 @@
 
 .settings-section h3 {
   margin: 0 0 16px 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
+  font-size: 18px;
+  font-weight: 700;
+  font-family: monospace;
+  color: #f4d58d;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.settings-section h3::before {
+  content: ' ';
+  /* TODO: there was a ⚡ here bedore, but I removed it. Should I add it or not? */
 }
 
 .settings-field {
@@ -112,30 +212,38 @@
   display: block;
   margin-bottom: 8px;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+  color: #d4a5ff;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
 }
 
 .settings-field input {
   width: 100%;
-  padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.95);
-  font-size: 14px;
-  font-family: inherit;
-  transition: all 0.2s;
+  padding: 12px;
+  background: #0d0620;
+  border: 3px solid #8b6bb7;
+  border-radius: 0;
+  color: #f4d58d;
+  font-size: 16px;
+  font-family: monospace;
+  font-weight: bold;
+  transition: all 0.1s;
   box-sizing: border-box;
+  box-shadow: inset 0 4px 0 0 rgba(0, 0, 0, 0.4);
 }
 
 .settings-field input:focus {
   outline: none;
-  border-color: #646cff;
-  background: rgba(0, 0, 0, 0.4);
+  border-color: #f4d58d;
+  background: #1a0d2e;
+  box-shadow: 
+    inset 0 4px 0 0 rgba(0, 0, 0, 0.4),
+    0 0 0 2px #f4d58d;
 }
 
 .settings-field input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(244, 213, 141, 0.3);
 }
 
 .settings-field input[type="number"] {
@@ -153,40 +261,72 @@
   display: flex;
   gap: 12px;
   padding: 20px 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 4px solid #8b6bb7;
+  background: linear-gradient(0deg, #2d1b4e 0%, #1a0d2e 100%);
 }
 
 .settings-button {
   flex: 1;
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
+  padding: 14px 20px;
+  border-radius: 0;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: monospace;
   cursor: pointer;
-  transition: all 0.2s;
-  border: none;
-  font-family: inherit;
+  transition: all 0.1s;
+  border: 3px solid;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  position: relative;
+  top: 0;
+  box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.4);
 }
 
 .settings-button.secondary {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.8);
+  background: #5c4a7a;
+  color: #d4a5ff;
+  border-color: #8b6bb7;
 }
 
 .settings-button.secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: rgba(255, 255, 255, 0.95);
+  background: #6e5a8f;
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.4);
 }
 
 .settings-button.primary {
-  background: #646cff;
-  color: white;
+  background: #f4d58d;
+  color: #2d1b4e;
+  border-color: #d4a574;
+  text-shadow: none;
 }
 
 .settings-button.primary:hover {
-  background: #535bf2;
+  background: #fce5a8;
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.4);
 }
 
 .settings-button:active {
-  transform: scale(0.98);
+  transform: translateY(4px);
+  box-shadow: none;
+}
+
+/* Custom scrollbar for pixel theme */
+.settings-content::-webkit-scrollbar {
+  width: 16px;
+}
+
+.settings-content::-webkit-scrollbar-track {
+  background: #0d0620;
+  border: 2px solid #8b6bb7;
+}
+
+.settings-content::-webkit-scrollbar-thumb {
+  background: #8b6bb7;
+  border: 2px solid #f4d58d;
+}
+
+.settings-content::-webkit-scrollbar-thumb:hover {
+  background: #a98ccc;
 }
