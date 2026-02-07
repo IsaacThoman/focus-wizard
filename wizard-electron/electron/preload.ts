@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('focusWizard', {
     ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
   openSettings: () =>
     ipcRenderer.invoke('focus-wizard:open-settings') as Promise<void>,
+  startSession: () =>
+    ipcRenderer.invoke('focus-wizard:start-session') as Promise<void>,
   quitApp: () =>
     ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
 })
