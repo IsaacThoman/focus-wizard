@@ -49,6 +49,7 @@ app/node_modules/
 app/dist/
 app/dist-electron/
 app/release/
+release/
 app/.vite/
 *.tsbuildinfo
 
