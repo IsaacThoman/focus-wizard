@@ -466,7 +466,8 @@ export function SettingsPage() {
                       <div className="metric-item">
                         <div className="metric-label">👤 Face Found</div>
                         <div className="metric-value">
-                          {focusData.face_detected ? '✓ Yes' : '✗ No'}
+                          {bridgeStatus === "No faces found." ? '✗ No' : '✓ Yes'}{/* scuffed up, but hey at least a human wrote this */}
+
                         </div>
                       </div>
 
