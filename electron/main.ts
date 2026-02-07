@@ -38,6 +38,7 @@ function createWindow() {
     resizable: false,
     transparent: true,
     titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 12, y: 10 },
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
