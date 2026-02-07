@@ -156,7 +156,7 @@ function App() {
 
   return (
     <>
-      <div className={`window-titlebar ${showTitlebar ? 'visible' : ''}`} />
+      {/* <div className={`window-titlebar ${showTitlebar ? 'visible' : ''}`} /> */}
       <main className="pixel-stage">
         <canvas ref={canvasRef} className="pixel-canvas" width={64} height={64} />
         <div className="confidence-pill">

@@ -4,6 +4,7 @@
   margin: 0;
   padding: 0;
   max-width: none;
+  -webkit-app-region: drag;
 }
 
 .pixel-stage {
@@ -30,6 +31,7 @@
   font-size: 12px;
   font-family: monospace;
   pointer-events: none;
+  -webkit-app-region: no-drag;
 }
 
 .settings-button {

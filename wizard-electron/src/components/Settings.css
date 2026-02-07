@@ -299,6 +299,16 @@
   background: linear-gradient(0deg, #2d1b4e 0%, #1a0d2e 100%);
 }
 
+.settings-footer-quit {
+  display: flex;
+  padding: 0 24px 20px 24px;
+  background: linear-gradient(0deg, #2d1b4e 0%, #1a0d2e 100%);
+}
+
+.settings-footer-quit .quit-btn {
+  width: 100%;
+}
+
 .settings-button {
   flex: 1;
   padding: 14px 20px;
@@ -337,6 +347,19 @@
 
 .settings-button.primary:hover {
   background: #fce5a8;
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.4);
+}
+
+.settings-button.danger {
+  background: #8b2e2e;
+  color: #ffb3b3;
+  border-color: #a94442;
+  text-shadow: none;
+}
+
+.settings-button.danger:hover {
+  background: #a83c3c;
   transform: translateY(2px);
   box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.4);
 }

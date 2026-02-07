@@ -47,22 +47,48 @@ export function SettingsPage() {
     window.close()
   }
 
+  const handleQuitApp = () => {
+    window.focusWizard?.quitApp()
+  }
+
   const handleEmployerCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, '').slice(0, 6)
     setSettings({ ...settings, employerCode: value })
   }
 
   const handleWorkMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(e.target.value, 10)
-    if (!isNaN(value) && value > 0 && value <= 240) {
-      setSettings({ ...settings, pomodoroWorkMinutes: value })
+    const value = e.target.value
+    if (value === '') {
+      setSettings({ ...settings, pomodoroWorkMinutes: '' as any })
+    } else {
+      const num = parseInt(value, 10)
+      if (!isNaN(num) && num > 0 && num <= 240) {
+        setSettings({ ...settings, pomodoroWorkMinutes: num })
+      }
     }
   }
 
   const handleBreakMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(e.target.value, 10)
-    if (!isNaN(value) && value > 0 && value <= 60) {
-      setSettings({ ...settings, pomodoroBreakMinutes: value })
+    const value = e.target.value
+    if (value === '') {
+      setSettings({ ...settings, pomodoroBreakMinutes: '' as any })
+    } else {
+      const num = parseInt(value, 10)
+      if (!isNaN(num) && num > 0 && num <= 60) {
+        setSettings({ ...settings, pomodoroBreakMinutes: num })
+      }
+    }
+  }
+
+  const handleWorkMinutesBlur = () => {
+    if (settings.pomodoroWorkMinutes === '' || settings.pomodoroWorkMinutes === 0) {
+      setSettings({ ...settings, pomodoroWorkMinutes: DEFAULT_SETTINGS.pomodoroWorkMinutes })
+    }
+  }
+
+  const handleBreakMinutesBlur = () => {
+    if (settings.pomodoroBreakMinutes === '' || settings.pomodoroBreakMinutes === 0) {
+      setSettings({ ...settings, pomodoroBreakMinutes: DEFAULT_SETTINGS.pomodoroBreakMinutes })
     }
   }
 
@@ -129,14 +155,14 @@ export function SettingsPage() {
       })}
       <div className="settings-panel standalone">
         <div className="settings-header">
-          <h2>⚙ WIZARD SETTINGS ⚙</h2>
+          <h2>WIZARD SETTINGS</h2>
         </div>
 
         <div className="settings-content">
           <section className="settings-section">
             <h3>Pomodoro Timer</h3>
             <div className="settings-field">
-              <label htmlFor="work-minutes">🔥 Focus Time (minutes)</label>
+              <label htmlFor="work-minutes">Focus Time (minutes)</label>
               <input
                 id="work-minutes"
                 type="number"
@@ -144,10 +170,11 @@ export function SettingsPage() {
                 max="240"
                 value={settings.pomodoroWorkMinutes}
                 onChange={handleWorkMinutesChange}
+                onBlur={handleWorkMinutesBlur}
               />
             </div>
             <div className="settings-field">
-              <label htmlFor="break-minutes">✨ Rest Time (minutes)</label>
+              <label htmlFor="break-minutes">Rest Time (minutes)</label>
               <input
                 id="break-minutes"
                 type="number"
@@ -155,6 +182,7 @@ export function SettingsPage() {
                 max="60"
                 value={settings.pomodoroBreakMinutes}
                 onChange={handleBreakMinutesChange}
+                onBlur={handleBreakMinutesBlur}
               />
             </div>
           </section>
@@ -162,7 +190,7 @@ export function SettingsPage() {
           <section className="settings-section">
             <h3>Employer Link</h3>
             <div className="settings-field">
-              <label htmlFor="employer-code">🔮 6-Digit Verification Code</label>
+              <label htmlFor="employer-code">6-Digit Verification Code</label>
               <input
                 id="employer-code"
                 type="text"
@@ -183,6 +211,11 @@ export function SettingsPage() {
           </button>
           <button className="settings-button primary" onClick={handleSave}>
             Save
+          </button>
+        </div>
+        <div className="settings-footer-quit">
+          <button className="settings-button danger quit-btn" onClick={handleQuitApp}>
+            Quit App
           </button>
         </div>
       </div>

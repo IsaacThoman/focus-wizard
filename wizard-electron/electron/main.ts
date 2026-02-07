@@ -33,12 +33,19 @@ function createWindow() {
   win = new BrowserWindow({
     width: windowSize,
     height: windowSize,
+    minWidth: windowSize,
+    maxWidth: windowSize,
+    minHeight: windowSize,
+    maxHeight: windowSize,
     x: width - windowSize - margin,
     y: height - windowSize - margin,
     alwaysOnTop: true,
     resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     transparent: true,
-    titleBarStyle: 'customButtonsOnHover',
+    frame: false,
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -129,5 +136,9 @@ ipcMain.handle('focus-wizard:open-settings', () => {
   } else {
     settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'))
   }
+})
+
+ipcMain.handle('focus-wizard:quit-app', () => {
+  app.quit()
 })
 
