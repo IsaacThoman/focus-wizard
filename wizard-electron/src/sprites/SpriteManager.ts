@@ -7,14 +7,16 @@ export interface AnimatedSprite {
   scale?: number
   /** Frames per second for this sprite's animation */
   fps?: number
-  /** Current frame index (managed internally) */
-  _frame: number
+  /** Current column index within the active row (managed internally) */
+  _col: number
   /** Accumulated time since last frame advance (ms) */
   _elapsed: number
   /** Whether the animation is playing */
   playing: boolean
   /** Loop the animation */
   loop: boolean
+  /** Active row to animate across (0-based). Changes which horizontal strip is used. */
+  row: number
   /** Optional z-index for draw ordering (lower draws first) */
   z?: number
 }
@@ -48,7 +50,7 @@ export class SpriteManager {
     sheet: SpriteSheet,
     x: number,
     y: number,
-    options: { scale?: number; fps?: number; loop?: boolean; playing?: boolean; z?: number } = {},
+    options: { scale?: number; fps?: number; loop?: boolean; playing?: boolean; row?: number; z?: number } = {},
   ): void {
     this.sprites.set(id, {
       kind: 'animated',
@@ -57,10 +59,11 @@ export class SpriteManager {
       y,
       scale: options.scale ?? 1,
       fps: options.fps ?? 8,
-      _frame: 0,
+      _col: 0,
       _elapsed: 0,
       playing: options.playing ?? true,
       loop: options.loop ?? true,
+      row: options.row ?? 0,
       z: options.z ?? 0,
     })
   }
@@ -108,16 +111,16 @@ export class SpriteManager {
 
       while (sprite._elapsed >= frameDuration) {
         sprite._elapsed -= frameDuration
-        const nextFrame = sprite._frame + 1
+        const nextCol = sprite._col + 1
 
-        if (nextFrame >= sprite.sheet.frameCount) {
+        if (nextCol >= sprite.sheet.framesPerRow) {
           if (sprite.loop) {
-            sprite._frame = 0
+            sprite._col = 0
           } else {
             sprite.playing = false
           }
         } else {
-          sprite._frame = nextFrame
+          sprite._col = nextCol
         }
       }
     }
@@ -132,7 +135,9 @@ export class SpriteManager {
 
     for (const sprite of sorted) {
       if (sprite.kind === 'animated') {
-        sprite.sheet.drawFrame(ctx, sprite._frame, sprite.x, sprite.y, sprite.scale)
+        // Compute the linear frame index from row + column
+        const frameIndex = sprite.row * sprite.sheet.framesPerRow + sprite._col
+        sprite.sheet.drawFrame(ctx, frameIndex, sprite.x, sprite.y, sprite.scale)
       } else {
         ctx.drawImage(sprite.image, Math.round(sprite.x), Math.round(sprite.y), sprite.width, sprite.height)
       }

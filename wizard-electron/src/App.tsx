@@ -10,6 +10,14 @@ const PRODUCTIVITY_ENDPOINT = 'http://localhost:8000/getProductivityConfidence'
 const SCREENSHOT_INTERVAL_MS = 20_000
 const CANVAS_SIZE = 128
 
+export type WizardEmotion = 'happy' | 'neutral' | 'mad'
+
+const EMOTION_ROW: Record<WizardEmotion, number> = {
+  happy: 0,
+  neutral: 1,
+  mad: 2,
+}
+
 /** Load an image from a URL and return a promise that resolves when loaded. */
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -27,31 +35,25 @@ function spriteUrl(filename: string): string {
 
 function App() {
   const [productivityConfidence, setProductivityConfidence] = useState<number | null>(null)
-  const [currentSprite, setCurrentSprite] = useState('wizard-happy.png')
+  const [emotion, setEmotion] = useState<WizardEmotion>('happy')
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const screenshotInFlightRef = useRef(false)
   const spriteManagerRef = useRef<SpriteManager | null>(null)
   const animFrameRef = useRef<number>(0)
 
-  const handleWizardAreaMouseEnter = () => {
-    setCurrentSprite('wizard-wand.png')
-  }
-
-  const handleWizardAreaMouseLeave = () => {
-    setCurrentSprite('wizard-happy.png')
-  }
-
-  const handleWandAreaMouseEnter = () => {
-    setCurrentSprite('wizard-wand-sparkle.png')
-  }
-
-  const handleWandAreaMouseLeave = () => {
-    setCurrentSprite('wizard-wand.png')
-  }
-
   const handleWandAreaClick = () => {
     window.focusWizard?.openSettings()
   }
+
+  // When emotion changes, update the wizard sprite's active row
+  useEffect(() => {
+    const manager = spriteManagerRef.current
+    if (!manager) return
+    const wizard = manager.get('wizard')
+    if (wizard && wizard.kind === 'animated') {
+      wizard.row = EMOTION_ROW[emotion]
+    }
+  }, [emotion])
 
   // Main render loop: sets up the SpriteManager, loads sprites, runs animation
   useEffect(() => {
@@ -73,25 +75,37 @@ function App() {
 
     const setup = async () => {
       try {
-        // Load the pot sprite sheet (320x128, 80x128 frames = 4 frames in a row)
-        if (!manager.has('pot')) {
-          const potImg = await loadImage(spriteUrl('pot-sheet.png'))
-          if (cancelled) return
+        // Load pot sprite sheet (320x128, 80x128 frames = 4 frames in a row)
+        const potImg = await loadImage(spriteUrl('pot-sheet.png'))
+        if (cancelled) return
 
-          const potSheet = new SpriteSheet(potImg, 80, 128, { frameCount: 4 })
-          // Place the pot centered on the canvas
-          const potX = Math.floor((CANVAS_SIZE - 80) / 2)
-          const potY = Math.floor((CANVAS_SIZE - 128) / 2)
-          manager.addAnimated('pot', potSheet, potX, potY, {
-            fps: 6,
-            loop: true,
-            playing: true,
-            z: 0,
-          })
-        }
+        const potSheet = new SpriteSheet(potImg, 80, 128, { frameCount: 4 })
+        const potX = Math.floor((CANVAS_SIZE - 80) / 2)
+        const potY = CANVAS_SIZE - 128
+        manager.addAnimated('pot', potSheet, potX, potY, {
+          fps: 6,
+          loop: true,
+          playing: true,
+          z: 0,
+        })
+
+        // Load wizard sprite sheet (400x384, 80x128 frames = 5 cols x 3 rows)
+        // Rows: 0=happy, 1=neutral, 2=mad
+        const wizardImg = await loadImage(spriteUrl('wizard-sprites.png'))
+        if (cancelled) return
+
+        const wizardSheet = new SpriteSheet(wizardImg, 80, 128)
+        const wizX = Math.floor((CANVAS_SIZE - 80) / 2)
+        const wizY = CANVAS_SIZE - 128
+        manager.addAnimated('wizard', wizardSheet, wizX, wizY, {
+          fps: 6,
+          loop: true,
+          playing: true,
+          row: EMOTION_ROW[emotion],
+          z: 1,
+        })
       } catch (err) {
         console.error('Failed to load sprites:', err)
-        // Fallback: draw a black rect
         if (!cancelled) {
           ctx.fillStyle = '#000'
           ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
@@ -120,8 +134,9 @@ function App() {
       cancelAnimationFrame(animFrameRef.current)
       spriteManagerRef.current = null
     }
-  }, [currentSprite])
+  }, [])
 
+  // Screenshot polling for productivity confidence
   useEffect(() => {
     let isMounted = true
 
@@ -155,7 +170,17 @@ function App() {
         const parsed = getProductivityConfidenceResponseSchema.safeParse(json)
 
         if (parsed.success && isMounted) {
-          setProductivityConfidence(parsed.data.productivityConfidence)
+          const confidence = parsed.data.productivityConfidence
+          setProductivityConfidence(confidence)
+
+          // Drive wizard emotion from productivity score
+          if (confidence >= 0.6) {
+            setEmotion('happy')
+          } else if (confidence >= 0.3) {
+            setEmotion('neutral')
+          } else {
+            setEmotion('mad')
+          }
         }
       } catch (error) {
         console.error('Failed to submit screenshot:', error)
@@ -177,26 +202,17 @@ function App() {
 
   return (
     <>
-      {/* <div className={`window-titlebar ${showTitlebar ? 'visible' : ''}`} /> */}
       <main className="pixel-stage">
-        <div 
-          className="wizard-area"
-          onMouseEnter={handleWizardAreaMouseEnter}
-          onMouseLeave={handleWizardAreaMouseLeave}
-        >
+        <div className="wizard-area">
           <canvas 
             ref={canvasRef} 
             className="pixel-canvas" 
             width={CANVAS_SIZE} 
             height={CANVAS_SIZE}
-            style={{ 
-              cursor: 'default'
-            }}
+            style={{ cursor: 'default' }}
           />
           <div 
             className="wand-hotspot"
-            onMouseEnter={handleWandAreaMouseEnter}
-            onMouseLeave={handleWandAreaMouseLeave}
             onClick={handleWandAreaClick}
           />
         </div>
