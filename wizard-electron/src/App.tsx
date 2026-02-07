@@ -3,16 +3,35 @@ import {
   getProductivityConfidenceResponseSchema,
   type GetProductivityConfidenceRequest,
 } from '@shared/productivitySchemas'
+import { SpriteSheet, SpriteManager } from './sprites'
 import './App.css'
 
 const PRODUCTIVITY_ENDPOINT = 'http://localhost:8000/getProductivityConfidence'
 const SCREENSHOT_INTERVAL_MS = 20_000
+const CANVAS_SIZE = 128
+
+/** Load an image from a URL and return a promise that resolves when loaded. */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.decoding = 'async'
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+function spriteUrl(filename: string): string {
+  return new URL(`./sprites/${filename}`, window.location.href).toString()
+}
 
 function App() {
   const [productivityConfidence, setProductivityConfidence] = useState<number | null>(null)
   const [currentSprite, setCurrentSprite] = useState('wizard-happy.png')
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const screenshotInFlightRef = useRef(false)
+  const spriteManagerRef = useRef<SpriteManager | null>(null)
+  const animFrameRef = useRef<number>(0)
 
   const handleWizardAreaMouseEnter = () => {
     setCurrentSprite('wizard-wand.png')
@@ -34,60 +53,72 @@ function App() {
     window.focusWizard?.openSettings()
   }
 
+  // Main render loop: sets up the SpriteManager, loads sprites, runs animation
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    // Keep a tiny internal resolution; CSS scales it up.
-    canvas.width = 64
-    canvas.height = 64
+    canvas.width = CANVAS_SIZE
+    canvas.height = CANVAS_SIZE
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    type SmoothingContext2D = CanvasRenderingContext2D & {
-      mozImageSmoothingEnabled?: boolean
-      webkitImageSmoothingEnabled?: boolean
-      msImageSmoothingEnabled?: boolean
+    ctx.imageSmoothingEnabled = false
+
+    const manager = new SpriteManager(CANVAS_SIZE, CANVAS_SIZE)
+    spriteManagerRef.current = manager
+
+    let cancelled = false
+
+    const setup = async () => {
+      try {
+        // Load the pot sprite sheet (320x128, 80x128 frames = 4 frames in a row)
+        if (!manager.has('pot')) {
+          const potImg = await loadImage(spriteUrl('pot-sheet.png'))
+          if (cancelled) return
+
+          const potSheet = new SpriteSheet(potImg, 80, 128, { frameCount: 4 })
+          // Place the pot centered on the canvas
+          const potX = Math.floor((CANVAS_SIZE - 80) / 2)
+          const potY = Math.floor((CANVAS_SIZE - 128) / 2)
+          manager.addAnimated('pot', potSheet, potX, potY, {
+            fps: 6,
+            loop: true,
+            playing: true,
+            z: 0,
+          })
+        }
+      } catch (err) {
+        console.error('Failed to load sprites:', err)
+        // Fallback: draw a black rect
+        if (!cancelled) {
+          ctx.fillStyle = '#000'
+          ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+        }
+      }
     }
 
-    const sctx = ctx as SmoothingContext2D
-    sctx.imageSmoothingEnabled = false
-    sctx.mozImageSmoothingEnabled = false
-    sctx.webkitImageSmoothingEnabled = false
-    sctx.msImageSmoothingEnabled = false
+    void setup()
 
-    const img = new Image()
-    img.decoding = 'async'
-    img.src = new URL(`./sprites/${currentSprite}`, window.location.href).toString()
+    // Animation loop
+    let lastTime = performance.now()
+    const tick = (now: number) => {
+      if (cancelled) return
+      const delta = now - lastTime
+      lastTime = now
 
-    const draw = () => {
-      ctx.clearRect(0, 0, 64, 64)
+      manager.update(delta)
+      manager.draw(ctx)
 
-      const scale = Math.min(64 / img.width, 64 / img.height)
-      const dw = Math.max(1, Math.floor(img.width * scale))
-      const dh = Math.max(1, Math.floor(img.height * scale))
-      const dx = Math.floor((64 - dw) / 2)
-      const dy = Math.floor((64 - dh) / 2)
-
-      ctx.drawImage(img, dx, dy, dw, dh)
+      animFrameRef.current = requestAnimationFrame(tick)
     }
-
-    const drawFallback = () => {
-      ctx.clearRect(0, 0, 64, 64)
-      ctx.fillStyle = '#000'
-      ctx.fillRect(0, 0, 64, 64)
-    }
-
-    img.onload = draw
-    img.onerror = drawFallback
-
-    // Initial paint while the image loads.
-    drawFallback()
+    animFrameRef.current = requestAnimationFrame(tick)
 
     return () => {
-      img.onload = null
-      img.onerror = null
+      cancelled = true
+      cancelAnimationFrame(animFrameRef.current)
+      spriteManagerRef.current = null
     }
   }, [currentSprite])
 
@@ -156,8 +187,8 @@ function App() {
           <canvas 
             ref={canvasRef} 
             className="pixel-canvas" 
-            width={64} 
-            height={64}
+            width={CANVAS_SIZE} 
+            height={CANVAS_SIZE}
             style={{ 
               cursor: 'default'
             }}
