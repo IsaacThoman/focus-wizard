@@ -30,7 +30,8 @@
   transition: opacity 0.25s ease-in-out;
 }
 
-body:hover .window-titlebar {
+.window-titlebar.visible,
+.window-titlebar:hover {
   opacity: 1;
 }
 
