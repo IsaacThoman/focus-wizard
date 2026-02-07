@@ -11,6 +11,8 @@
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   position: relative;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .sparkle-background {
@@ -47,14 +49,46 @@
   }
 }
 
-.sparkle-physics {
+.sparkle-click {
   position: fixed;
-  font-size: 18px;
   pointer-events: none;
   z-index: 1001;
-  filter: drop-shadow(0 0 4px #f4d58d) drop-shadow(0 0 8px #f4d58d);
-  transition: opacity 0.3s ease;
-  will-change: transform, left, top;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  animation: sparkle-spew 1s ease-out forwards;
+}
+
+.sparkle-click::before {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: linear-gradient(45deg, #f4d58d 0%, #fce5a8 50%, #f4d58d 100%);
+  transform: translate(-50%, -50%) rotate(45deg);
+  box-shadow: 
+    0 0 4px #f4d58d,
+    0 0 8px #f4d58d,
+    inset 0 0 4px rgba(255, 255, 255, 0.5);
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+@keyframes sparkle-spew {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(0deg) scale(0.3);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: 
+      translate(-50%, -50%) 
+      translate(var(--offset-x), var(--offset-y))
+      rotate(360deg)
+      scale(0.8);
+  }
 }
 
 .settings-overlay {

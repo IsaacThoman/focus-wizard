@@ -13,20 +13,17 @@ const DEFAULT_SETTINGS: SettingsData = {
   employerCode: '',
 }
 
-interface Sparkle {
+interface ClickSparkle {
   id: number
   x: number
   y: number
-  vx: number
-  vy: number
-  rotation: number
-  rotationSpeed: number
-  settled: boolean
+  angle: number
+  distance: number
 }
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS)
-  const [focusSparkles, setFocusSparkles] = useState<Sparkle[]>([])
+  const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([])
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -69,95 +66,34 @@ export function SettingsPage() {
     }
   }
 
-  // Physics simulation for sparkles
-  useEffect(() => {
-    if (focusSparkles.length === 0) return
-
-    const GRAVITY = 0.3
-    const BOUNCE_DAMPING = 0.6
-    const FRICTION = 0.98
-    const FLOOR_Y = window.innerHeight - 40
-    const SETTLE_THRESHOLD = 0.5
-
-    let animationFrameId: number
-
-    const updateSparkles = () => {
-      setFocusSparkles((prevSparkles) => {
-        const updated = prevSparkles.map((sparkle) => {
-          if (sparkle.settled) return sparkle
-
-          let { x, y, vx, vy, rotation, rotationSpeed } = sparkle
-
-          // Apply gravity
-          vy += GRAVITY
-
-          // Apply velocity
-          x += vx
-          y += vy
-
-          // Apply friction
-          vx *= FRICTION
-
-          // Bounce off walls
-          if (x <= 10 || x >= window.innerWidth - 10) {
-            vx = -vx * BOUNCE_DAMPING
-            x = x <= 10 ? 10 : window.innerWidth - 10
-          }
-
-          // Bounce off floor
-          if (y >= FLOOR_Y) {
-            y = FLOOR_Y
-            vy = -vy * BOUNCE_DAMPING
-            vx *= BOUNCE_DAMPING
-
-            // Check if settled
-            if (Math.abs(vy) < SETTLE_THRESHOLD && Math.abs(vx) < SETTLE_THRESHOLD) {
-              return { ...sparkle, x, y, vx: 0, vy: 0, rotation, settled: true }
-            }
-          }
-
-          // Update rotation
-          rotation += rotationSpeed
-
-          return { ...sparkle, x, y, vx, vy, rotation, rotationSpeed }
-        })
-
-        // Remove sparkles that have been settled for too long
-        return updated.filter((s) => !s.settled || Date.now() - s.id < 5000)
-      })
-
-      animationFrameId = requestAnimationFrame(updateSparkles)
-    }
-
-    animationFrameId = requestAnimationFrame(updateSparkles)
-
-    return () => cancelAnimationFrame(animationFrameId)
-  }, [focusSparkles.length > 0])
-
-  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    const rect = e.target.getBoundingClientRect()
+  const handleClick = (e: React.MouseEvent) => {
+    const baseId = Date.now()
+    const newSparkles: ClickSparkle[] = []
     
-    const newSparkles: Sparkle[] = []
-    for (let i = 0; i < 12; i++) {
-      const angle = (Math.random() * Math.PI) - Math.PI / 2 // Spray upward and to sides
-      const speed = 5 + Math.random() * 8
+    // Create 6 sparkles that spew outward in different directions
+    for (let i = 0; i < 6; i++) {
+      const angle = (i * 60) + (Math.random() - 0.5) * 30 // Evenly spread with some randomness
+      const distance = 30 + Math.random() * 40 // Random distance between 30-70px
+      
       newSparkles.push({
-        id: Date.now() + i,
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 5, // Extra upward boost
-        rotation: Math.random() * 360,
-        rotationSpeed: (Math.random() - 0.5) * 10,
-        settled: false,
+        id: baseId + i,
+        x: e.clientX,
+        y: e.clientY,
+        angle,
+        distance,
       })
     }
-
-    setFocusSparkles((prev) => [...prev, ...newSparkles])
+    
+    setClickSparkles((prev) => [...prev, ...newSparkles])
+    
+    // Remove sparkles after animation completes
+    setTimeout(() => {
+      setClickSparkles((prev) => prev.filter((s) => s.id < baseId || s.id >= baseId + 6))
+    }, 1000)
   }
 
   return (
-    <div className="settings-page">
+    <div className="settings-page" onClick={handleClick}>
       <div className="sparkle-background">
         {Array.from({ length: 15 }).map((_, i) => (
           <div
@@ -173,20 +109,24 @@ export function SettingsPage() {
           </div>
         ))}
       </div>
-      {focusSparkles.map((sparkle) => (
-        <div
-          key={sparkle.id}
-          className="sparkle-physics"
-          style={{
-            left: `${sparkle.x}px`,
-            top: `${sparkle.y}px`,
-            transform: `translate(-50%, -50%) rotate(${sparkle.rotation}deg)`,
-            opacity: sparkle.settled ? 0.5 : 1,
-          }}
-        >
-          ⭐
-        </div>
-      ))}
+      {clickSparkles.map((sparkle) => {
+        const angleRad = (sparkle.angle * Math.PI) / 180
+        const offsetX = Math.cos(angleRad) * sparkle.distance
+        const offsetY = Math.sin(angleRad) * sparkle.distance
+        
+        return (
+          <div
+            key={sparkle.id}
+            className="sparkle-click"
+            style={{
+              left: `${sparkle.x}px`,
+              top: `${sparkle.y}px`,
+              '--offset-x': `${offsetX}px`,
+              '--offset-y': `${offsetY}px`,
+            } as React.CSSProperties}
+          />
+        )
+      })}
       <div className="settings-panel standalone">
         <div className="settings-header">
           <h2>⚙ WIZARD SETTINGS ⚙</h2>
@@ -204,7 +144,6 @@ export function SettingsPage() {
                 max="240"
                 value={settings.pomodoroWorkMinutes}
                 onChange={handleWorkMinutesChange}
-                onFocus={handleInputFocus}
               />
             </div>
             <div className="settings-field">
@@ -216,7 +155,6 @@ export function SettingsPage() {
                 max="60"
                 value={settings.pomodoroBreakMinutes}
                 onChange={handleBreakMinutesChange}
-                onFocus={handleInputFocus}
               />
             </div>
           </section>
@@ -234,7 +172,6 @@ export function SettingsPage() {
                 placeholder="000000"
                 value={settings.employerCode}
                 onChange={handleEmployerCodeChange}
-                onFocus={handleInputFocus}
               />
             </div>
           </section>
