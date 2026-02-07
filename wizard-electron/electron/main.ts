@@ -1,6 +1,8 @@
+import 'dotenv/config'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { BridgeManager, FocusData } from './bridge-manager'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -25,6 +27,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win: BrowserWindow | null = null
 let settingsWin: BrowserWindow | null = null
 let setupWin: BrowserWindow | null = null
+let bridge: BridgeManager | null = null
 
 function createSetupWindow() {
   if (setupWin) {
@@ -128,6 +131,7 @@ function createWindow() {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
+  bridge?.stop()
   if (process.platform !== 'darwin') {
     app.quit()
     win = null
@@ -140,6 +144,10 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createSetupWindow()
   }
+})
+
+app.on('before-quit', () => {
+  bridge?.stop()
 })
 
 app.whenReady().then(createSetupWindow)
@@ -178,6 +186,101 @@ ipcMain.handle('focus-wizard:start-session', () => {
   } else {
     win.focus()
   }
+})
+
+// ── Bridge IPC Handlers ──────────────────────────────────
+
+async function startBridge(): Promise<void> {
+  const apiKey = process.env.SMARTSPECTRA_API_KEY || ''
+
+  if (!apiKey) {
+    console.warn('[Main] No SMARTSPECTRA_API_KEY set — bridge will not start.')
+    console.warn('[Main] Set it in your environment or pass it via the app settings.')
+    // Send error to all windows
+    settingsWin?.webContents.send('bridge:error', 'No SMARTSPECTRA_API_KEY set. Please configure your API key.')
+    setupWin?.webContents.send('bridge:error', 'No SMARTSPECTRA_API_KEY set. Please configure your API key.')
+    return
+  }
+
+  bridge = new BridgeManager({ apiKey, mode: 'docker' })
+
+  bridge.on('ready', () => {
+    console.log('[Main] Bridge is ready!')
+    settingsWin?.webContents.send('bridge:ready')
+    setupWin?.webContents.send('bridge:ready')
+  })
+
+  bridge.on('focus', (data: FocusData) => {
+    settingsWin?.webContents.send('bridge:focus', data)
+    setupWin?.webContents.send('bridge:focus', data)
+  })
+
+  bridge.on('metrics', (data: Record<string, unknown>) => {
+    settingsWin?.webContents.send('bridge:metrics', data)
+    setupWin?.webContents.send('bridge:metrics', data)
+  })
+
+  bridge.on('edge', (data: Record<string, unknown>) => {
+    settingsWin?.webContents.send('bridge:edge', data)
+    setupWin?.webContents.send('bridge:edge', data)
+  })
+
+  bridge.on('status', (status: string) => {
+    console.log(`[Main] Bridge status: ${status}`)
+    settingsWin?.webContents.send('bridge:status', status)
+    setupWin?.webContents.send('bridge:status', status)
+  })
+
+  bridge.on('bridge-error', (message: string) => {
+    console.error(`[Main] Bridge error: ${message}`)
+    settingsWin?.webContents.send('bridge:error', message)
+    setupWin?.webContents.send('bridge:error', message)
+  })
+
+  bridge.on('close', (code: number) => {
+    console.log(`[Main] Bridge exited with code ${code}`)
+    settingsWin?.webContents.send('bridge:closed', code)
+    setupWin?.webContents.send('bridge:closed', code)
+  })
+
+  try {
+    await bridge.start()
+  } catch (err) {
+    console.error('[Main] Failed to start bridge:', err)
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    settingsWin?.webContents.send('bridge:error', errorMsg)
+    setupWin?.webContents.send('bridge:error', errorMsg)
+  }
+}
+
+ipcMain.handle('bridge:start', async (_event, apiKey?: string) => {
+  if (apiKey) {
+    process.env.SMARTSPECTRA_API_KEY = apiKey
+  }
+  if (bridge?.running) {
+    return { success: true, message: 'Bridge already running' }
+  }
+  await startBridge()
+  return { success: true }
+})
+
+ipcMain.handle('bridge:stop', async () => {
+  bridge?.stop()
+  return { success: true }
+})
+
+ipcMain.handle('bridge:status', async () => {
+  return {
+    running: bridge?.running ?? false,
+  }
+})
+
+ipcMain.handle('docker:check', async () => {
+  return { available: BridgeManager.isDockerAvailable() }
+})
+
+ipcMain.on('frame:data', (_event, timestampUs: number, data: Buffer) => {
+  bridge?.frameWriter?.writeFrame(timestampUs, Buffer.from(data))
 })
 
 ipcMain.handle('focus-wizard:quit-app', () => {

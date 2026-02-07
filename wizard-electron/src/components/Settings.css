@@ -391,3 +391,91 @@
 .settings-content::-webkit-scrollbar-thumb:hover {
   background: #a98ccc;
 }
+
+/* Biometrics Section */
+.biometrics-section {
+  background: rgba(13, 6, 32, 0.8);
+  border-color: #6b4b97;
+}
+
+.biometrics-status {
+  padding: 12px;
+  background: rgba(45, 27, 78, 0.5);
+  border: 2px solid #8b6bb7;
+  margin-bottom: 16px;
+  font-family: monospace;
+  color: #d4a5ff;
+  font-size: 14px;
+  text-align: center;
+}
+
+.biometrics-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.camera-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.camera-label {
+  font-family: monospace;
+  color: #f4d58d;
+  font-size: 12px;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.metric-item {
+  background: rgba(45, 27, 78, 0.7);
+  border: 2px solid #8b6bb7;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-label {
+  font-family: monospace;
+  font-size: 11px;
+  color: #d4a5ff;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metric-value {
+  font-family: monospace;
+  font-size: 16px;
+  color: #f4d58d;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.metrics-loading,
+.biometrics-loading,
+.metrics-error {
+  padding: 24px;
+  text-align: center;
+  font-family: monospace;
+  color: #d4a5ff;
+  font-size: 14px;
+}
+
+.metrics-error {
+  color: #ffb3b3;
+  background: rgba(139, 46, 46, 0.3);
+  border: 2px solid #a94442;
+  padding: 12px;
+}
+
