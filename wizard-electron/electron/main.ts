@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { BridgeManager, FocusData } from './bridge-manager'
@@ -26,41 +26,10 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null = null
 let settingsWin: BrowserWindow | null = null
-let setupWin: BrowserWindow | null = null
 let bridge: BridgeManager | null = null
 
-function createSetupWindow() {
-  if (setupWin) {
-    setupWin.focus()
-    return
-  }
-
-  setupWin = new BrowserWindow({
-    width: 500,
-    height: 700,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    title: 'Setup - Focus Wizard',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
-    },
-  })
-
-  setupWin.on('closed', () => {
-    setupWin = null
-  })
-
-  if (VITE_DEV_SERVER_URL) {
-    setupWin.loadURL(`${VITE_DEV_SERVER_URL}setup.html`)
-  } else {
-    setupWin.loadFile(path.join(RENDERER_DIST, 'setup.html'))
-  }
-}
-
-function createSettingsWindow() {
+function createSettingsWindow(mode: 'setup' | 'settings' = 'settings') {
   if (settingsWin) {
-    settingsWin.show()
     settingsWin.focus()
     return
   }
@@ -71,7 +40,7 @@ function createSettingsWindow() {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: 'Settings - Focus Wizard',
+    title: mode === 'setup' ? 'Setup - Focus Wizard' : 'Settings - Focus Wizard',
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
@@ -82,9 +51,11 @@ function createSettingsWindow() {
   })
 
   if (VITE_DEV_SERVER_URL) {
-    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html`)
+    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html?mode=${mode}`)
   } else {
-    settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'))
+    settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'), {
+      query: { mode },
+    })
   }
 }
 
@@ -143,7 +114,7 @@ app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createSetupWindow()
+    createSettingsWindow('setup')
   }
 })
 
@@ -151,7 +122,7 @@ app.on('before-quit', () => {
   bridge?.stop()
 })
 
-app.whenReady().then(createSetupWindow)
+app.whenReady().then(() => createSettingsWindow('setup'))
 
 ipcMain.handle('focus-wizard:capture-page-screenshot', async () => {
   const primaryDisplay = screen.getPrimaryDisplay()
@@ -206,7 +177,6 @@ async function startBridge(): Promise<void> {
     console.warn('[Main] Set it in your environment or pass it via the app settings.')
     // Send error to all windows
     settingsWin?.webContents.send('bridge:error', 'No SMARTSPECTRA_API_KEY set. Please configure your API key.')
-    setupWin?.webContents.send('bridge:error', 'No SMARTSPECTRA_API_KEY set. Please configure your API key.')
     return
   }
 
@@ -215,40 +185,33 @@ async function startBridge(): Promise<void> {
   bridge.on('ready', () => {
     console.log('[Main] Bridge is ready!')
     settingsWin?.webContents.send('bridge:ready')
-    setupWin?.webContents.send('bridge:ready')
   })
 
   bridge.on('focus', (data: FocusData) => {
     settingsWin?.webContents.send('bridge:focus', data)
-    setupWin?.webContents.send('bridge:focus', data)
   })
 
   bridge.on('metrics', (data: Record<string, unknown>) => {
     settingsWin?.webContents.send('bridge:metrics', data)
-    setupWin?.webContents.send('bridge:metrics', data)
   })
 
   bridge.on('edge', (data: Record<string, unknown>) => {
     settingsWin?.webContents.send('bridge:edge', data)
-    setupWin?.webContents.send('bridge:edge', data)
   })
 
   bridge.on('status', (status: string) => {
     console.log(`[Main] Bridge status: ${status}`)
     settingsWin?.webContents.send('bridge:status', status)
-    setupWin?.webContents.send('bridge:status', status)
   })
 
   bridge.on('bridge-error', (message: string) => {
     console.error(`[Main] Bridge error: ${message}`)
     settingsWin?.webContents.send('bridge:error', message)
-    setupWin?.webContents.send('bridge:error', message)
   })
 
   bridge.on('close', (code: number) => {
     console.log(`[Main] Bridge exited with code ${code}`)
     settingsWin?.webContents.send('bridge:closed', code)
-    setupWin?.webContents.send('bridge:closed', code)
   })
 
   try {
@@ -257,9 +220,9 @@ async function startBridge(): Promise<void> {
     console.error('[Main] Failed to start bridge:', err)
     const errorMsg = err instanceof Error ? err.message : String(err)
     settingsWin?.webContents.send('bridge:error', errorMsg)
-    setupWin?.webContents.send('bridge:error', errorMsg)
   }
 }
+// keep all above
 
 ipcMain.handle('bridge:start', async (_event, apiKey?: string) => {
   if (apiKey) {
@@ -304,5 +267,9 @@ ipcMain.on('frame:data', (_event, timestampUs: number, data: Buffer) => {
 
 ipcMain.handle('focus-wizard:quit-app', () => {
   app.quit()
+})
+
+ipcMain.handle('focus-wizard:open-wallet-page', () => {
+  shell.openExternal('http://localhost:8000/wallet')
 })
 

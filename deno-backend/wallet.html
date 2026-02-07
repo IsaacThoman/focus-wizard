@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Focus Wizard - Solana Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a0d2e;
+      background-image:
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.2) 2px, rgba(0,0,0,0.2) 4px);
+      color: #f4d58d;
+      font-family: monospace;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      image-rendering: pixelated;
+      user-select: none;
+    }
+
+    .wallet-container {
+      background: linear-gradient(135deg, #2d1b4e 0%, #1a0d2e 100%);
+      border: 4px solid #8b6bb7;
+      box-shadow:
+        0 0 0 2px #1a0d2e,
+        0 8px 0 0 rgba(0,0,0,0.5),
+        0 8px 32px rgba(0,0,0,0.8);
+      width: 90%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .wallet-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 24px;
+      border-bottom: 4px solid #8b6bb7;
+      background: linear-gradient(180deg, #3d2963 0%, #2d1b4e 100%);
+    }
+
+    .wallet-header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #f4d58d;
+      text-shadow: 2px 2px 0 #8b6bb7, 4px 4px 0 rgba(0,0,0,0.5);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .wallet-body {
+      padding: 24px;
+      background: #1a0d2e;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .section {
+      padding: 16px;
+      background: rgba(45,27,78,0.5);
+      border: 3px solid #8b6bb7;
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);
+    }
+
+    .section h2 {
+      font-size: 16px;
+      color: #f4d58d;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .wallet-address {
+      font-size: 11px;
+      color: #d4a5ff;
+      word-break: break-all;
+      padding: 8px;
+      background: #0d0620;
+      border: 2px solid #8b6bb7;
+    }
+
+    .balance {
+      font-size: 28px;
+      color: #f4d58d;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+      text-align: center;
+      padding: 12px 0;
+    }
+
+    .balance .sol-label {
+      font-size: 14px;
+      color: #d4a5ff;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #d4a5ff;
+      font-weight: bold;
+      text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+    }
+
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 10px;
+      background: #0d0620;
+      border: 3px solid #8b6bb7;
+      color: #f4d58d;
+      font-size: 14px;
+      font-family: monospace;
+      font-weight: bold;
+      box-shadow: inset 0 4px 0 0 rgba(0,0,0,0.4);
+      margin-bottom: 10px;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #f4d58d;
+      background: #1a0d2e;
+      box-shadow: inset 0 4px 0 0 rgba(0,0,0,0.4), 0 0 0 2px #f4d58d;
+    }
+
+    input::placeholder { color: rgba(244,213,141,0.3); }
+
+    .btn {
+      width: 100%;
+      padding: 14px 20px;
+      font-size: 16px;
+      font-weight: 700;
+      font-family: monospace;
+      cursor: pointer;
+      transition: all 0.1s;
+      border: 3px solid;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      position: relative;
+      box-shadow: 0 4px 0 0 rgba(0,0,0,0.4);
+    }
+
+    .btn:hover {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0 0 rgba(0,0,0,0.4);
+    }
+
+    .btn:active {
+      transform: translateY(4px);
+      box-shadow: none;
+    }
+
+    .btn-primary {
+      background: #f4d58d;
+      color: #2d1b4e;
+      border-color: #d4a574;
+    }
+
+    .btn-primary:hover { background: #fce5a8; }
+
+    .btn-secondary {
+      background: #5c4a7a;
+      color: #d4a5ff;
+      border-color: #8b6bb7;
+    }
+
+    .btn-secondary:hover { background: #6e5a8f; }
+
+    .btn-danger {
+      background: #8b2e2e;
+      color: #ffb3b3;
+      border-color: #a94442;
+    }
+
+    .btn-danger:hover { background: #a83c3c; }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: 0 4px 0 0 rgba(0,0,0,0.4);
+    }
+
+    .form-row {
+      margin-bottom: 10px;
+    }
+
+    .status-msg {
+      font-size: 12px;
+      padding: 8px;
+      text-align: center;
+      border: 2px solid;
+    }
+
+    .status-msg.success {
+      color: #a8e6a8;
+      border-color: #4a8c4a;
+      background: rgba(74,140,74,0.15);
+    }
+
+    .status-msg.error {
+      color: #ffb3b3;
+      border-color: #a94442;
+      background: rgba(169,68,66,0.15);
+    }
+
+    .status-msg.info {
+      color: #d4a5ff;
+      border-color: #8b6bb7;
+      background: rgba(139,107,183,0.15);
+    }
+
+    .hidden { display: none; }
+
+    .tab-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: monospace;
+      cursor: pointer;
+      border: 3px solid #8b6bb7;
+      background: #5c4a7a;
+      color: #d4a5ff;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.1s;
+    }
+
+    .tab-btn.active {
+      background: #f4d58d;
+      color: #2d1b4e;
+      border-color: #d4a574;
+    }
+
+    .tab-btn:hover:not(.active) {
+      background: #6e5a8f;
+    }
+
+    .wizard-vault-info {
+      font-size: 12px;
+      color: #d4a5ff;
+      text-align: center;
+      padding: 8px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div class="wallet-container">
+    <div class="wallet-header">
+      <h1>Solana Wallet</h1>
+    </div>
+
+    <div class="wallet-body">
+      <!-- Connect Section -->
+      <div id="connect-section" class="section">
+        <h2>Connect Wallet</h2>
+        <p id="connect-status" class="status-msg info" style="margin-bottom: 12px;">
+          No wallet connected
+        </p>
+        <button id="connect-btn" class="btn btn-primary" onclick="connectWallet()">
+          Connect Phantom
+        </button>
+        <button id="disconnect-btn" class="btn btn-danger hidden" style="margin-top: 8px;" onclick="disconnectWallet()">
+          Disconnect
+        </button>
+      </div>
+
+      <!-- Wallet Info (shown after connect) -->
+      <div id="wallet-info" class="section hidden">
+        <h2>Your Wallet</h2>
+        <div class="wallet-address" id="wallet-address"></div>
+        <div class="balance" id="wallet-balance">-- <span class="sol-label">SOL</span></div>
+      </div>
+
+      <!-- Wizard Vault Info -->
+      <div id="vault-section" class="section hidden">
+        <h2>Wizard Vault</h2>
+        <div class="wallet-address" id="vault-address"></div>
+        <div class="balance" id="vault-balance">-- <span class="sol-label">SOL</span></div>
+        <div class="wizard-vault-info">
+          The wizard vault is managed by the Focus Wizard app
+        </div>
+      </div>
+
+      <!-- Send / Withdraw Tabs (shown after connect) -->
+      <div id="actions-section" class="section hidden">
+        <div class="tab-row">
+          <button class="tab-btn active" id="tab-send" onclick="switchTab('send')">Send to Wizard</button>
+          <button class="tab-btn" id="tab-withdraw" onclick="switchTab('withdraw')">Withdraw</button>
+        </div>
+
+        <!-- Send Form -->
+        <div id="send-form">
+          <div class="form-row">
+            <label for="send-amount">Amount (SOL)</label>
+            <input type="number" id="send-amount" placeholder="0.0" min="0" step="0.001" />
+          </div>
+          <button class="btn btn-primary" onclick="sendToVault()" id="send-btn">
+            Send SOL to Wizard
+          </button>
+        </div>
+
+        <!-- Withdraw Form -->
+        <div id="withdraw-form" class="hidden">
+          <div class="form-row">
+            <label for="withdraw-amount">Amount (SOL)</label>
+            <input type="number" id="withdraw-amount" placeholder="0.0" min="0" step="0.001" />
+          </div>
+          <button class="btn btn-secondary" onclick="withdrawFromVault()" id="withdraw-btn">
+            Withdraw SOL from Wizard
+          </button>
+        </div>
+
+        <div id="tx-status" class="status-msg info hidden" style="margin-top: 12px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Buffer polyfill required by @solana/web3.js in the browser -->
+  <script type="module">
+    import { Buffer } from 'https://esm.sh/buffer@6.0.3';
+    window.Buffer = Buffer;
+
+    // Dynamically load @solana/web3.js after Buffer is available
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/@solana/web3.js@1.98.0/lib/index.iife.min.js';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+
+    // Now run app init
+    init();
+  </script>
+  <script>
+    const BACKEND_URL = window.location.origin;
+    // Proxy all RPC through our Deno backend to avoid 403 from public mainnet RPC
+    const RPC_PROXY = `${BACKEND_URL}/wallet/rpc`;
+
+    let connectedWallet = null; // { publicKey: solanaWeb3.PublicKey, provider }
+    let connection = null;
+    let vaultAddress = null;
+
+    function init() {
+      // Disable WebSocket by pointing wsEndpoint to a dummy value.
+      // Our RPC proxy only supports HTTP POST, not WebSocket upgrades.
+      // We use manual polling for transaction confirmation instead.
+      connection = new solanaWeb3.Connection(RPC_PROXY, {
+        commitment: "confirmed",
+        wsEndpoint: "wss://localhost:0/disabled",
+        disableRetryOnRateLimit: false,
+      });
+      loadVaultInfo();
+    }
+
+    /**
+     * Poll-based transaction confirmation.
+     * Replaces connection.confirmTransaction() which requires WebSocket.
+     */
+    async function pollForConfirmation(signature, commitment = "confirmed", timeoutMs = 60000) {
+      const start = Date.now();
+      const pollInterval = 2000; // 2 seconds between polls
+
+      while (Date.now() - start < timeoutMs) {
+        try {
+          const resp = await connection.getSignatureStatuses([signature]);
+          const status = resp?.value?.[0];
+          if (status) {
+            if (status.err) {
+              throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
+            }
+            // Check if confirmation level is sufficient
+            if (status.confirmationStatus === commitment ||
+                status.confirmationStatus === "finalized" ||
+                (commitment === "processed" && status.confirmationStatus)) {
+              return status;
+            }
+          }
+        } catch (e) {
+          // getSignatureStatuses can fail transiently — keep polling
+          console.warn("Poll error (retrying):", e.message);
+        }
+        await new Promise(r => setTimeout(r, pollInterval));
+      }
+      throw new Error(
+        `Transaction was not confirmed in ${(timeoutMs / 1000).toFixed(1)} seconds. ` +
+        `Check signature ${signature} using the Solana Explorer or CLI tools.`
+      );
+    }
+
+    async function loadVaultInfo() {
+      try {
+        const resp = await fetch(`${BACKEND_URL}/wallet/vault`);
+        const data = await resp.json();
+        if (data.vaultAddress) {
+          vaultAddress = data.vaultAddress;
+          document.getElementById("vault-address").textContent = vaultAddress;
+          document.getElementById("vault-section").classList.remove("hidden");
+          refreshVaultBalance();
+        }
+      } catch (e) {
+        console.error("Failed to load vault info:", e);
+      }
+    }
+
+    async function refreshVaultBalance() {
+      if (!vaultAddress) return;
+      try {
+        const pubkey = new solanaWeb3.PublicKey(vaultAddress);
+        const lamports = await connection.getBalance(pubkey);
+        const sol = lamports / solanaWeb3.LAMPORTS_PER_SOL;
+        document.getElementById("vault-balance").innerHTML =
+          `${sol.toFixed(4)} <span class="sol-label">SOL</span>`;
+      } catch (e) {
+        console.error("Failed to get vault balance:", e);
+      }
+    }
+
+    async function refreshWalletBalance() {
+      if (!connectedWallet) return;
+      try {
+        const lamports = await connection.getBalance(connectedWallet.publicKey);
+        const sol = lamports / solanaWeb3.LAMPORTS_PER_SOL;
+        document.getElementById("wallet-balance").innerHTML =
+          `${sol.toFixed(4)} <span class="sol-label">SOL</span>`;
+      } catch (e) {
+        console.error("Failed to get wallet balance:", e);
+      }
+    }
+
+    function getPhantomProvider() {
+      if ("solana" in window) {
+        const provider = window.solana;
+        if (provider.isPhantom) return provider;
+      }
+      // Check for other injected wallets
+      if (window.solflare?.isSolflare) return window.solflare;
+      return null;
+    }
+
+    async function connectWallet() {
+      const provider = getPhantomProvider();
+      if (!provider) {
+        showConnectStatus("error", "No Solana wallet found. Install Phantom or Solflare.");
+        return;
+      }
+
+      try {
+        const resp = await provider.connect();
+        connectedWallet = {
+          publicKey: resp.publicKey,
+          provider: provider,
+        };
+
+        document.getElementById("wallet-address").textContent = resp.publicKey.toString();
+        document.getElementById("wallet-info").classList.remove("hidden");
+        document.getElementById("actions-section").classList.remove("hidden");
+        document.getElementById("connect-btn").classList.add("hidden");
+        document.getElementById("disconnect-btn").classList.remove("hidden");
+        showConnectStatus("success", `Connected: ${resp.publicKey.toString().slice(0, 8)}...`);
+
+        // Notify backend about the connection
+        await fetch(`${BACKEND_URL}/wallet/connect`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ walletAddress: resp.publicKey.toString() }),
+        });
+
+        refreshWalletBalance();
+        refreshVaultBalance();
+      } catch (err) {
+        showConnectStatus("error", `Connection failed: ${err.message}`);
+      }
+    }
+
+    async function disconnectWallet() {
+      if (connectedWallet?.provider) {
+        try { await connectedWallet.provider.disconnect(); } catch (_) {}
+      }
+      connectedWallet = null;
+      document.getElementById("wallet-info").classList.add("hidden");
+      document.getElementById("actions-section").classList.add("hidden");
+      document.getElementById("connect-btn").classList.remove("hidden");
+      document.getElementById("disconnect-btn").classList.add("hidden");
+      showConnectStatus("info", "No wallet connected");
+
+      await fetch(`${BACKEND_URL}/wallet/disconnect`, { method: "POST" });
+    }
+
+    async function sendToVault() {
+      if (!connectedWallet || !vaultAddress) return;
+      const amountStr = document.getElementById("send-amount").value;
+      const amount = parseFloat(amountStr);
+      if (!amount || amount <= 0) {
+        showTxStatus("error", "Enter a valid amount");
+        return;
+      }
+
+      const btn = document.getElementById("send-btn");
+      btn.disabled = true;
+      showTxStatus("info", "Building transaction...");
+
+      try {
+        const lamports = Math.round(amount * solanaWeb3.LAMPORTS_PER_SOL);
+        const transaction = new solanaWeb3.Transaction().add(
+          solanaWeb3.SystemProgram.transfer({
+            fromPubkey: connectedWallet.publicKey,
+            toPubkey: new solanaWeb3.PublicKey(vaultAddress),
+            lamports: lamports,
+          })
+        );
+
+        transaction.feePayer = connectedWallet.publicKey;
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+
+        showTxStatus("info", "Please approve in your wallet...");
+        const signed = await connectedWallet.provider.signTransaction(transaction);
+        const sig = await connection.sendRawTransaction(signed.serialize());
+
+        showTxStatus("info", "Confirming transaction (this may take up to 60s)...");
+        await pollForConfirmation(sig, "confirmed", 60000);
+
+        showTxStatus("success", `Sent ${amount} SOL! Tx: ${sig.slice(0, 16)}...`);
+        document.getElementById("send-amount").value = "";
+
+        // Notify backend
+        await fetch(`${BACKEND_URL}/wallet/tx-notify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "send", signature: sig, amount }),
+        });
+
+        refreshWalletBalance();
+        refreshVaultBalance();
+      } catch (err) {
+        showTxStatus("error", `Failed: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function withdrawFromVault() {
+      if (!connectedWallet || !vaultAddress) return;
+      const amountStr = document.getElementById("withdraw-amount").value;
+      const amount = parseFloat(amountStr);
+      if (!amount || amount <= 0) {
+        showTxStatus("error", "Enter a valid amount");
+        return;
+      }
+
+      const btn = document.getElementById("withdraw-btn");
+      btn.disabled = true;
+      showTxStatus("info", "Requesting withdrawal...");
+
+      try {
+        const resp = await fetch(`${BACKEND_URL}/wallet/withdraw`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            toAddress: connectedWallet.publicKey.toString(),
+            amount: amount,
+          }),
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.error || "Withdrawal failed");
+        }
+
+        showTxStatus("success", `Withdrew ${amount} SOL! Tx: ${data.signature.slice(0, 16)}...`);
+        document.getElementById("withdraw-amount").value = "";
+        refreshWalletBalance();
+        refreshVaultBalance();
+      } catch (err) {
+        showTxStatus("error", `Failed: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function switchTab(tab) {
+      document.getElementById("tab-send").classList.toggle("active", tab === "send");
+      document.getElementById("tab-withdraw").classList.toggle("active", tab === "withdraw");
+      document.getElementById("send-form").classList.toggle("hidden", tab !== "send");
+      document.getElementById("withdraw-form").classList.toggle("hidden", tab !== "withdraw");
+      document.getElementById("tx-status").classList.add("hidden");
+    }
+
+    function showConnectStatus(type, msg) {
+      const el = document.getElementById("connect-status");
+      el.className = `status-msg ${type}`;
+      el.textContent = msg;
+    }
+
+    function showTxStatus(type, msg) {
+      const el = document.getElementById("tx-status");
+      el.className = `status-msg ${type}`;
+      el.textContent = msg;
+      el.classList.remove("hidden");
+    }
+
+    // init() is called from the module script above after Buffer + solana are loaded
+  </script>
+</body>
+</html>

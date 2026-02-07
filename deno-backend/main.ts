@@ -4,6 +4,7 @@ import {
   getProductivityConfidenceRequestSchema,
   getProductivityConfidenceResponseSchema,
 } from "../shared/productivitySchemas.ts";
+import { createWalletRouter } from "./walletRouter.ts";
 
 const PORT = 8000;
 const OPENAI_BASE_URL = Deno.env.get("OPENAI_BASE_URL") ??
@@ -159,7 +160,7 @@ const app = new Application();
 
 app.use(async (ctx, next) => {
   ctx.response.headers.set("Access-Control-Allow-Origin", "*");
-  ctx.response.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  ctx.response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   ctx.response.headers.set("Access-Control-Allow-Headers", "Content-Type");
 
   if (ctx.request.method === "OPTIONS") {
@@ -172,6 +173,10 @@ app.use(async (ctx, next) => {
 
 app.use(router.routes());
 app.use(router.allowedMethods());
+
+const walletRouter = createWalletRouter();
+app.use(walletRouter.routes());
+app.use(walletRouter.allowedMethods());
 
 if (import.meta.main) {
   console.log(`Oak backend running on http://localhost:${PORT}`);
