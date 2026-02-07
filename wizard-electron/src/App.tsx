@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   getProductivityConfidenceResponseSchema,
   type GetProductivityConfidenceRequest,
-} from '@shared/productivitySchemas'
+} from '../dist-electron/shared/productivitySchemas'
 import './App.css'
 
 const PRODUCTIVITY_ENDPOINT = 'http://localhost:8000/getProductivityConfidence'
@@ -163,6 +163,13 @@ function App() {
           Confidence:{' '}
           {productivityConfidence === null ? '--' : productivityConfidence.toFixed(2)}
         </div>
+        <button
+          className="settings-button"
+          onClick={() => window.focusWizard?.openSettings()}
+          title="Settings"
+        >
+          ⚙️
+        </button>
       </main>
     </>
   )

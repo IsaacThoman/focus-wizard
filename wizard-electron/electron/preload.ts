@@ -26,4 +26,6 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 contextBridge.exposeInMainWorld('focusWizard', {
   capturePageScreenshot: () =>
     ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
+  openSettings: () =>
+    ipcRenderer.invoke('focus-wizard:open-settings') as Promise<void>,
 })

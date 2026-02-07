@@ -31,3 +31,33 @@
   font-family: monospace;
   pointer-events: none;
 }
+
+.settings-button {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag;
+}
+
+.settings-button:hover {
+  background: rgba(0, 0, 0, 0.8);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.05);
+}
+
+.settings-button:active {
+  transform: scale(0.95);
+}

@@ -3,5 +3,6 @@
 interface Window {
   focusWizard?: {
     capturePageScreenshot: () => Promise<string>
+    openSettings: () => Promise<void>
   }
 }

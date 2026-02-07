@@ -11,6 +11,14 @@ export default defineConfig({
       zod: path.resolve(__dirname, 'node_modules/zod'),
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        settings: path.resolve(__dirname, 'settings.html'),
+      },
+    },
+  },
   server: {
     fs: {
       allow: ['..'],

@@ -26,5 +26,6 @@ interface Window {
   ipcRenderer: import('electron').IpcRenderer
   focusWizard: {
     capturePageScreenshot: () => Promise<string>
+    openSettings: () => Promise<void>
   }
 }

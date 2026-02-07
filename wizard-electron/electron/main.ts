@@ -23,6 +23,7 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
 
 let win: BrowserWindow | null
+let settingsWin: BrowserWindow | null = null
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -100,3 +101,33 @@ ipcMain.handle('focus-wizard:capture-page-screenshot', async () => {
 
   return source.thumbnail.toPNG().toString('base64')
 })
+
+ipcMain.handle('focus-wizard:open-settings', () => {
+  if (settingsWin) {
+    settingsWin.focus()
+    return
+  }
+
+  settingsWin = new BrowserWindow({
+    width: 500,
+    height: 600,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    title: 'Settings - Focus Wizard',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.mjs'),
+    },
+  })
+
+  settingsWin.on('closed', () => {
+    settingsWin = null
+  })
+
+  if (VITE_DEV_SERVER_URL) {
+    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html`)
+  } else {
+    settingsWin.loadFile(path.join(RENDERER_DIST, 'settings.html'))
+  }
+})
+
