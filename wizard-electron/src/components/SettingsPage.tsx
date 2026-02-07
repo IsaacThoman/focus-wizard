@@ -474,7 +474,7 @@ export function SettingsPage() {
                       <div className="metric-item">
                         <div className="metric-label">🚶 Is Away</div>
                         <div className="metric-value">
-                          {focusData.state === 'away' ? '✓ Yes' : '✗ No'}
+                          {bridgeStatus === "No issues detected." ? '✗ No' : '✓ Yes'} {/* scuffed up? yeah. works? also yeah */}
                         </div>
                       </div>
 
