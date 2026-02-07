@@ -361,7 +361,7 @@ export function SettingsPage({ mode = 'settings' }: SettingsPageProps) {
               animationDuration: `${3 + Math.random() * 2}s`,
             }}
           >
-            ✨
+            *
           </div>
         ))}
       </div>
@@ -385,7 +385,7 @@ export function SettingsPage({ mode = 'settings' }: SettingsPageProps) {
       })}
       <div className="settings-panel standalone">
         <div className="settings-header">
-          <h2>{isSetup ? '⚙ WIZARD SETUP ⚙' : '⚙ WIZARD SETTINGS ⚙'}</h2>
+          <h2>{isSetup ? 'WIZARD SETUP' : 'WIZARD SETTINGS'}</h2>
         </div>
 
         <div className="settings-content">

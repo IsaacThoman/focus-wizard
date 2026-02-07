@@ -135,7 +135,7 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>🧙‍♂️ Focus Wizard</h1>
+        <h1>Focus Wizard</h1>
         <span className={`status-badge ${isReady ? 'online' : 'offline'}`}>
           {isReady ? '● Connected' : '○ Disconnected'}
         </span>
@@ -254,7 +254,6 @@ function App() {
               <span className="vital-label">Gaze (x, y)</span>
             </div>
             <div className="vital-card">
-              <span className="vital-icon">�️‍🗨️</span>
               <span className="vital-value">
                 {focusData?.blink_rate_per_min != null
                   ? `${focusData.blink_rate_per_min.toFixed(0)}/min`
