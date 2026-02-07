@@ -109,9 +109,11 @@ function createWindow() {
     fullscreenable: false,
     transparent: true,
     frame: false,
+    hasShadow: false,
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
+      backgroundThrottling: false,
     },
   })
 
@@ -119,6 +121,9 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
+
+  // Force transparent background after window creation
+  win.setBackgroundColor('#00000000')
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
@@ -304,8 +309,4 @@ ipcMain.on('frame:data', (_event, timestampUs: number, data: Buffer) => {
   } catch (err) {
     console.error('[Main] Error writing frame:', err)
   }
-})
-
-ipcMain.handle('focus-wizard:quit-app', () => {
-  app.quit()
 })

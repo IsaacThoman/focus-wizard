@@ -42,7 +42,7 @@ function App() {
     canvas.width = 64
     canvas.height = 64
 
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { alpha: true })
     if (!ctx) return
 
     type SmoothingContext2D = CanvasRenderingContext2D & {
@@ -75,8 +75,7 @@ function App() {
 
     const drawFallback = () => {
       ctx.clearRect(0, 0, 64, 64)
-      ctx.fillStyle = '#000'
-      ctx.fillRect(0, 0, 64, 64)
+      // Don't fill with black - leave transparent
     }
 
     img.onload = draw

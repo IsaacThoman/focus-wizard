@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useWebcam } from '../hooks/useWebcam'
 import './Settings.css'
 
 interface FocusData {
@@ -491,6 +492,8 @@ export function SettingsPage({ mode = 'settings' }: SettingsPageProps) {
               </button>
             </div>
           </section>
+
+          <section className="settings-section">
             <h3>Developer Settings</h3>
             <div className="settings-field">
               <label htmlFor="dev-mode">

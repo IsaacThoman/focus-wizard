@@ -5,6 +5,7 @@
   padding: 0;
   max-width: none;
   -webkit-app-region: drag;
+  background: transparent;
 }
 
 .pixel-stage {
@@ -27,6 +28,7 @@
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   -webkit-app-region: drag;
+  background: transparent;
 }
 
 .wand-hotspot {

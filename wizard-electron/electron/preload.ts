@@ -32,6 +32,7 @@ function createListener(channel: string) {
   }
 }
 
+contextBridge.exposeInMainWorld('wizardAPI', {
   capturePageScreenshot: () =>
     ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
   openSettings: () =>
@@ -42,6 +43,8 @@ function createListener(channel: string) {
     ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
   hideWindow: () =>
     ipcRenderer.invoke('focus-wizard:hide-window') as Promise<void>,
+  openWalletPage: () =>
+    ipcRenderer.invoke('focus-wizard:open-wallet-page') as Promise<void>,
   
   // Bridge API
   startBridge: (apiKey?: string) => ipcRenderer.invoke('bridge:start', apiKey),
@@ -64,7 +67,6 @@ function createListener(channel: string) {
   onClosed: createListener('bridge:closed'),
 })
 // TODO: check if this should be focusWizard or wizardAPI 
-// Backwards compatibility - keep focusWizard for existing code
 contextBridge.exposeInMainWorld('focusWizard', {
   capturePageScreenshot: () =>
     ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
@@ -74,6 +76,7 @@ contextBridge.exposeInMainWorld('focusWizard', {
     ipcRenderer.invoke('focus-wizard:start-session') as Promise<void>,
   quitApp: () =>
     ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
+  openWalletPage: () =>
+    ipcRenderer.invoke('focus-wizard:open-wallet-page') as Promise<void>,
 })
 
-contextBridge.exposeInMainWorld('wizardAPI', {
