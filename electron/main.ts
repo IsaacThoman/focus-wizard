@@ -1,9 +1,7 @@
 import { app, BrowserWindow, screen } from 'electron'
-import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
-const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // The built directory structure
@@ -28,7 +26,7 @@ let win: BrowserWindow | null
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  const windowSize = 200
+  const windowSize = 220
   const margin = 20
   
   win = new BrowserWindow({
