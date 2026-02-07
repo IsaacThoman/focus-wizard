@@ -63,7 +63,7 @@ function createListener(channel: string) {
   onReady: createListener('bridge:ready'),
   onClosed: createListener('bridge:closed'),
 })
-
+// TODO: check if this should be focusWizard or wizardAPI 
 // Backwards compatibility - keep focusWizard for existing code
 contextBridge.exposeInMainWorld('focusWizard', {
   capturePageScreenshot: () =>
