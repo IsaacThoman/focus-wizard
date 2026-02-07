@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('wizardAPI', {
     ipcRenderer.invoke('focus-wizard:start-session') as Promise<void>,
   quitApp: () =>
     ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
+  hideWindow: () =>
+    ipcRenderer.invoke('focus-wizard:hide-window') as Promise<void>,
   
   // Bridge API
   startBridge: (apiKey?: string) => ipcRenderer.invoke('bridge:start', apiKey),

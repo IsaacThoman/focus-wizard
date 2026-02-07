@@ -60,6 +60,7 @@ function createSetupWindow() {
 
 function createSettingsWindow() {
   if (settingsWin) {
+    settingsWin.show()
     settingsWin.focus()
     return
   }
@@ -188,6 +189,13 @@ ipcMain.handle('focus-wizard:start-session', () => {
   }
 })
 
+ipcMain.handle('focus-wizard:hide-window', () => {
+  // Hide the current focused window (typically settings)
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    settingsWin.hide()
+  }
+})
+
 // ── Bridge IPC Handlers ──────────────────────────────────
 
 async function startBridge(): Promise<void> {
@@ -280,7 +288,18 @@ ipcMain.handle('docker:check', async () => {
 })
 
 ipcMain.on('frame:data', (_event, timestampUs: number, data: Buffer) => {
-  bridge?.frameWriter?.writeFrame(timestampUs, Buffer.from(data))
+  const frameWriter = bridge?.frameWriter
+  if (!frameWriter) {
+    console.warn('[Main] Received frame but frame writer not initialized')
+    return
+  }
+  
+  try {
+    frameWriter.writeFrame(timestampUs, Buffer.from(data))
+    console.log(`[Main] Frame written: ${timestampUs}, size: ${data.length} bytes, count: ${frameWriter.count}`)
+  } catch (err) {
+    console.error('[Main] Error writing frame:', err)
+  }
 })
 
 ipcMain.handle('focus-wizard:quit-app', () => {

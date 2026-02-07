@@ -46,23 +46,34 @@ export function SettingsPage() {
   const [focusData, setFocusData] = useState<FocusData | null>(null)
   const [bridgeStatus, setBridgeStatus] = useState<string>('Not started')
   const [bridgeReady, setBridgeReady] = useState(false)
+  const [authError, setAuthError] = useState(false)
   const webcamPreviewRef = useRef<HTMLVideoElement>(null)
 
-  // Webcam capture - only enabled when dev mode is on
-  const { videoRef, isActive: webcamActive, error: webcamError } = useWebcam({
+  // Webcam capture - start immediately when dev mode is on (before bridge)
+  const { stream, isActive: webcamActive, error: webcamError } = useWebcam({
     width: 640,
     height: 480,
-    fps: 15,
+    fps: 5,  // 5 fps - balance between API usage and face tracking quality
     quality: 0.80,
-    enabled: settings.devMode && bridgeReady,
+    enabled: settings.devMode,  // Start webcam as soon as dev mode enabled
   })
 
-  // Share the same video element for preview
+  // Connect stream to preview video element
   useEffect(() => {
-    if (webcamPreviewRef.current && videoRef.current) {
-      webcamPreviewRef.current.srcObject = videoRef.current.srcObject
+    const videoEl = webcamPreviewRef.current
+    if (videoEl && stream && videoEl.srcObject !== stream) {
+      console.log('[SettingsPage] Connecting stream to preview video')
+      videoEl.srcObject = stream
+      videoEl.play().catch(err => {
+        console.error('[SettingsPage] Failed to play video:', err)
+      })
     }
-  }, [webcamActive, videoRef])
+  }, [stream, webcamActive])
+
+  // Save settings whenever they change (for devMode to persist)
+  useEffect(() => {
+    localStorage.setItem('focus-wizard-settings', JSON.stringify(settings))
+  }, [settings])
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -83,20 +94,56 @@ export function SettingsPage() {
     const api = window.wizardAPI
     if (!api) return
 
+    // Check initial bridge status on mount
+    api.getBridgeStatus().then((status: { running: boolean; status: string }) => {
+      if (status.running) {
+        setBridgeReady(true)
+        setBridgeStatus(status.status || 'Bridge ready')
+      } else {
+        setBridgeReady(false)
+        setBridgeStatus(status.status || 'Bridge stopped')
+      }
+    }).catch(() => {
+      setBridgeReady(false)
+      setBridgeStatus('Bridge not initialized')
+    })
+
     const unsubs = [
-      api.onFocus((data: FocusData) => setFocusData(data)),
+      api.onFocus((data: FocusData) => {
+        console.log('[SettingsPage] Focus data received:', data)
+        setFocusData(data)
+      }),
+      api.onMetrics((data: Record<string, unknown>) => {
+        console.log('[SettingsPage] Metrics data received:', data)
+        // Merge metrics into focus data if available
+        if (data) {
+          setFocusData(prev => ({ ...prev, ...data } as FocusData))
+        }
+      }),
       api.onStatus((s: string) => setBridgeStatus(s)),
       api.onReady(() => {
         setBridgeReady(true)
         setBridgeStatus('Bridge ready')
+        setAuthError(false)  // Clear auth error on successful start
       }),
       api.onError((msg: string) => {
+        console.error('[SettingsPage] Bridge error:', msg)
         setBridgeStatus(`Error: ${msg}`)
-        setBridgeReady(false)
+        
+        // Check if it's an authentication/usage error
+        if (msg.includes('Authentication failed') || msg.includes('usage_available') || msg.includes('Usage verification failed')) {
+          setAuthError(true)
+          setBridgeReady(false)
+          setBridgeStatus('⚠️ API credits exhausted. Please add more usage credits to your SmartSpectra account.')
+        } else {
+          setBridgeReady(false)
+        }
       }),
       api.onClosed(() => {
         setBridgeReady(false)
-        setBridgeStatus('Bridge stopped')
+        if (!authError) {
+          setBridgeStatus('Bridge stopped')
+        }
       }),
     ]
 
@@ -105,39 +152,64 @@ export function SettingsPage() {
     }
   }, [])
 
-  // Start/stop bridge based on dev mode
+  // Start/stop bridge based on dev mode and webcam status
   useEffect(() => {
     // @ts-expect-error — injected by preload
     const api = window.wizardAPI
-    if (!api) return
+    if (!api) {
+      console.error('[SettingsPage] wizardAPI not available')
+      return
+    }
 
-    if (settings.devMode) {
+    console.log(`[SettingsPage] Dev mode: ${settings.devMode}, Webcam active: ${webcamActive}`)
+
+    if (settings.devMode && webcamActive && !authError) {
+      // Only start bridge after webcam is actively capturing and no auth error
+      console.log('[SettingsPage] Starting bridge...')
       // Check if Docker is available first
       api.checkDocker().then(({ available }: { available: boolean }) => {
         if (available) {
-          api.startBridge().catch((err: Error) => {
-            console.error('Failed to start bridge:', err)
-            setBridgeStatus(`Failed to start: ${err.message}`)
-          })
+          console.log('[SettingsPage] Docker available, waiting 500ms then starting bridge')
+          // Small delay to ensure frames are being written
+          setTimeout(() => {
+            api.startBridge().catch((err: Error) => {
+              console.error('Failed to start bridge:', err)
+              setBridgeStatus(`Failed to start: ${err.message}`)
+            })
+          }, 500)
         } else {
+          console.error('[SettingsPage] Docker not available')
           setBridgeStatus('Docker not available')
         }
       })
     } else {
       // Stop bridge when dev mode is disabled
       if (bridgeReady) {
+        console.log('[SettingsPage] Stopping bridge')
         api.stopBridge()
       }
     }
-  }, [settings.devMode, bridgeReady])
+  }, [settings.devMode, webcamActive, bridgeReady, authError])
 
   const handleSave = () => {
     localStorage.setItem('focus-wizard-settings', JSON.stringify(settings))
-    window.close()
+    // Hide window instead of closing to keep monitoring active
+    // @ts-expect-error — injected by preload
+    if (window.wizardAPI?.hideWindow) {
+      window.wizardAPI.hideWindow()
+    } else {
+      window.close()
+    }
   }
 
   const handleCancel = () => {
-    window.close()
+    // Hide window instead of closing to keep monitoring active
+    // @ts-expect-error — injected by preload
+    if (window.wizardAPI?.hideWindow) {
+      window.wizardAPI.hideWindow()
+    } else {
+      window.close()
+    }
   }
 
   const handleQuitApp = () => {
@@ -335,7 +407,11 @@ export function SettingsPage() {
                   id="dev-mode"
                   type="checkbox"
                   checked={settings.devMode}
-                  onChange={(e) => setSettings({ ...settings, devMode: e.target.checked })}
+                  onChange={(e) => {
+                    setSettings({ ...settings, devMode: e.target.checked })
+                    // Clear auth error when toggling to allow retry after adding credits
+                    setAuthError(false)
+                  }}
                   style={{ width: 'auto', marginRight: '8px' }}
                 />
                 Enable Dev Mode (Show Biometric Metrics)
@@ -351,7 +427,7 @@ export function SettingsPage() {
                 <strong>Status:</strong> {bridgeStatus}
               </div>
 
-              {bridgeReady && webcamActive && (
+              {webcamActive && (
                 <div className="biometrics-grid">
                   <div className="camera-preview">
                     <video
@@ -365,6 +441,7 @@ export function SettingsPage() {
                         borderRadius: '8px',
                         border: '2px solid #8b6bb7',
                         objectFit: 'cover',
+                        backgroundColor: '#000',
                       }}
                     />
                     <div className="camera-label">Camera</div>
@@ -375,14 +452,14 @@ export function SettingsPage() {
                       <div className="metric-item">
                         <div className="metric-label">💓 Pulse</div>
                         <div className="metric-value">
-                          {focusData.pulse_bpm > 0 ? `${focusData.pulse_bpm} BPM` : 'N/A'}
+                          {focusData.pulse_bpm > 0 ? `${focusData.pulse_bpm.toFixed(1)} BPM` : `N/A (${focusData.pulse_bpm})`}
                         </div>
                       </div>
 
                       <div className="metric-item">
                         <div className="metric-label">🫁 Breathing</div>
                         <div className="metric-value">
-                          {focusData.breathing_bpm > 0 ? `${focusData.breathing_bpm} BPM` : 'N/A'}
+                          {focusData.breathing_bpm > 0 ? `${focusData.breathing_bpm.toFixed(1)} BPM` : `N/A (${focusData.breathing_bpm})`}
                         </div>
                       </div>
 
@@ -403,14 +480,14 @@ export function SettingsPage() {
                       <div className="metric-item">
                         <div className="metric-label">🗣️ Is Talking</div>
                         <div className="metric-value">
-                          {focusData.is_talking ? '✓ Yes' : '✗ No'}
+                          {focusData.is_talking ? '✓ Yes' : `✗ No`}
                         </div>
                       </div>
 
                       <div className="metric-item">
                         <div className="metric-label">👁️ Blink Rate</div>
                         <div className="metric-value">
-                          {focusData.blink_rate_per_min}/min
+                          {focusData.blink_rate_per_min > 0 ? `${focusData.blink_rate_per_min.toFixed(1)}/min` : `N/A (${focusData.blink_rate_per_min})`}
                         </div>
                       </div>
 
@@ -419,10 +496,26 @@ export function SettingsPage() {
                         <div className="metric-value">
                           {focusData.has_gaze
                             ? `(${focusData.gaze_x.toFixed(2)}, ${focusData.gaze_y.toFixed(2)})`
-                            : 'N/A'}
+                            : `N/A (${focusData.gaze_x}, ${focusData.gaze_y})`}
                         </div>
                       </div>
                     </div>
+                  )}
+
+                  {focusData && (
+                    <details style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#aaa' }}>
+                      <summary style={{ cursor: 'pointer' }}>Debug: Raw Data</summary>
+                      <pre style={{ 
+                        background: '#1a1a1a', 
+                        padding: '8px', 
+                        borderRadius: '4px', 
+                        overflow: 'auto',
+                        maxHeight: '200px',
+                        fontSize: '0.7rem'
+                      }}>
+                        {JSON.stringify(focusData, null, 2)}
+                      </pre>
+                    </details>
                   )}
 
                   {!focusData && (
