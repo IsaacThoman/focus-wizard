@@ -34,4 +34,11 @@ contextBridge.exposeInMainWorld('focusWizard', {
     ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
   openWalletPage: () =>
     ipcRenderer.invoke('focus-wizard:open-wallet-page') as Promise<void>,
+  onTriggerScreenshot: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('focus-wizard:trigger-screenshot', listener)
+    return () => {
+      ipcRenderer.removeListener('focus-wizard:trigger-screenshot', listener)
+    }
+  },
 })
