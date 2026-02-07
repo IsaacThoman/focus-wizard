@@ -22,3 +22,8 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   // You can expose other APTs you need here.
   // ...
 })
+
+contextBridge.exposeInMainWorld('focusWizard', {
+  capturePageScreenshot: () =>
+    ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
+})

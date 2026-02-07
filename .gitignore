@@ -75,3 +75,5 @@ Thumbs.db
 
 # ── Frame exchange directory ─────────────────────────
 /tmp/focus-wizard-frames/
+
+deno-backend/screenshots/

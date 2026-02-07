@@ -1,0 +1,179 @@
+import { Application, Router, Status } from "@oak/oak";
+import { z } from "zod";
+import {
+  getProductivityConfidenceRequestSchema,
+  getProductivityConfidenceResponseSchema,
+} from "../shared/productivitySchemas.ts";
+
+const PORT = 8000;
+const OPENAI_BASE_URL = Deno.env.get("OPENAI_BASE_URL") ??
+  "https://api.openai.com/v1";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
+
+const SYSTEM_PROMPT =
+  "You are a focus coach model. Return only a confidence score for whether the user is on task.";
+
+const USER_PROMPT =
+  `Please provide a confidence score from 0-1 for how confident you are that this user is on task.\n\nUser's intended goal:\nstudying for calculus\n\nThings the user would like to avoid:\ninstagram\ntwitter AI bullshit`;
+
+const apiResponseSchema = z.object({
+  confidence: z.number().min(0).max(1),
+});
+
+function normalizeImageDataUrl(input: string): string {
+  if (input.startsWith("data:image/")) {
+    return input;
+  }
+
+  return `data:image/png;base64,${input}`;
+}
+
+async function getConfidenceFromModel(
+  screenshotBase64: string,
+): Promise<number> {
+  const startedAt = performance.now();
+  let confidenceForLog: number | null = null;
+  if (!OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not set");
+  }
+
+  try {
+    const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: USER_PROMPT,
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: normalizeImageDataUrl(screenshotBase64),
+                },
+              },
+            ],
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "focus_confidence",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["confidence"],
+              properties: {
+                confidence: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 1,
+                },
+              },
+            },
+          },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Model API error ${response.status}: ${errorText}`);
+    }
+
+    const json = await response.json();
+    const content = json?.choices?.[0]?.message?.content;
+
+    if (typeof content !== "string") {
+      throw new Error("Model response was missing a text content payload");
+    }
+
+    const parsedJson = JSON.parse(content);
+    const parsed = apiResponseSchema.safeParse(parsedJson);
+
+    if (!parsed.success) {
+      throw new Error("Model response schema validation failed");
+    }
+
+    confidenceForLog = parsed.data.confidence;
+    return parsed.data.confidence;
+  } finally {
+    const elapsedMs = performance.now() - startedAt;
+    const confidenceText = confidenceForLog === null
+      ? "n/a"
+      : confidenceForLog.toFixed(2);
+    console.log(
+      `OpenAI request end-to-end took ${
+        elapsedMs.toFixed(0)
+      }ms, confidence: ${confidenceText}`,
+    );
+  }
+}
+
+const router = new Router();
+
+router.post("/getProductivityConfidence", async (ctx) => {
+  try {
+    const body = await ctx.request.body.json();
+    const parsed = getProductivityConfidenceRequestSchema.safeParse(body);
+
+    if (!parsed.success) {
+      ctx.response.status = Status.BadRequest;
+      ctx.response.body = {
+        error: "Invalid request body",
+        issues: parsed.error.issues,
+      };
+      return;
+    }
+
+    const productivityConfidence = await getConfidenceFromModel(
+      parsed.data.screenshotBase64,
+    );
+
+    const responsePayload = getProductivityConfidenceResponseSchema.parse({
+      productivityConfidence,
+    });
+
+    ctx.response.status = Status.OK;
+    ctx.response.body = responsePayload;
+  } catch (error) {
+    ctx.response.status = Status.InternalServerError;
+    ctx.response.body = {
+      error: error instanceof Error ? error.message : "Internal server error",
+    };
+  }
+});
+
+const app = new Application();
+
+app.use(async (ctx, next) => {
+  ctx.response.headers.set("Access-Control-Allow-Origin", "*");
+  ctx.response.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  ctx.response.headers.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (ctx.request.method === "OPTIONS") {
+    ctx.response.status = Status.NoContent;
+    return;
+  }
+
+  await next();
+});
+
+app.use(router.routes());
+app.use(router.allowedMethods());
+
+if (import.meta.main) {
+  console.log(`Oak backend running on http://localhost:${PORT}`);
+  await app.listen({ port: PORT });
+}

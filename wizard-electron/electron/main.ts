@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -76,3 +76,27 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(createWindow)
+
+ipcMain.handle('focus-wizard:capture-page-screenshot', async () => {
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const targetWidth = Math.max(1, Math.floor(primaryDisplay.size.width * primaryDisplay.scaleFactor))
+  const targetHeight = Math.max(1, Math.floor(primaryDisplay.size.height * primaryDisplay.scaleFactor))
+
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: {
+      width: targetWidth,
+      height: targetHeight,
+    },
+  })
+
+  const source =
+    sources.find((item) => item.display_id === String(primaryDisplay.id)) ??
+    sources[0]
+
+  if (!source) {
+    throw new Error('No screen source available for capture')
+  }
+
+  return source.thumbnail.toPNG().toString('base64')
+})

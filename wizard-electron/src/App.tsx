@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  getProductivityConfidenceResponseSchema,
+  type GetProductivityConfidenceRequest,
+} from '@shared/productivitySchemas'
 import './App.css'
+
+const PRODUCTIVITY_ENDPOINT = 'http://localhost:8000/getProductivityConfidence'
+const SCREENSHOT_INTERVAL_MS = 20_000
 
 function App() {
   const [showTitlebar, setShowTitlebar] = useState(false)
+  const [productivityConfidence, setProductivityConfidence] = useState<number | null>(null)
+
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const screenshotInFlightRef = useRef(false)
 
   useEffect(() => {
     const showElements = () => {
@@ -91,11 +101,68 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let isMounted = true
+
+    const captureAndSubmitScreenshot = async () => {
+      if (screenshotInFlightRef.current) return
+      if (!window.focusWizard?.capturePageScreenshot) return
+
+      screenshotInFlightRef.current = true
+
+      try {
+        const screenshotBase64 = await window.focusWizard.capturePageScreenshot()
+
+        const payload: GetProductivityConfidenceRequest = {
+          screenshotBase64,
+          capturedAt: new Date().toISOString(),
+        }
+
+        const response = await fetch(PRODUCTIVITY_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        })
+
+        if (!response.ok) {
+          return
+        }
+
+        const json = await response.json()
+        const parsed = getProductivityConfidenceResponseSchema.safeParse(json)
+
+        if (parsed.success && isMounted) {
+          setProductivityConfidence(parsed.data.productivityConfidence)
+        }
+      } catch (error) {
+        console.error('Failed to submit screenshot:', error)
+      } finally {
+        screenshotInFlightRef.current = false
+      }
+    }
+
+    void captureAndSubmitScreenshot()
+    const intervalId = setInterval(() => {
+      void captureAndSubmitScreenshot()
+    }, SCREENSHOT_INTERVAL_MS)
+
+    return () => {
+      isMounted = false
+      clearInterval(intervalId)
+    }
+  }, [])
+
   return (
     <>
       <div className={`window-titlebar ${showTitlebar ? 'visible' : ''}`} />
       <main className="pixel-stage">
         <canvas ref={canvasRef} className="pixel-canvas" width={64} height={64} />
+        <div className="confidence-pill">
+          Confidence:{' '}
+          {productivityConfidence === null ? '--' : productivityConfidence.toFixed(2)}
+        </div>
       </main>
     </>
   )
