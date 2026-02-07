@@ -1,0 +1,29 @@
+# Focus Wizard — Docker Compose
+#
+# For development / manual testing of the bridge container.
+# The Electron app spawns Docker directly, so this file is
+# for convenience only.
+#
+# Usage:
+#   export SMARTSPECTRA_API_KEY=your_key
+#   docker compose up --build
+
+services:
+  bridge:
+    build:
+      context: .
+      dockerfile: bridge/Dockerfile
+    image: focus-wizard-bridge
+    container_name: focus-wizard-bridge
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    volumes:
+      - ${FRAME_DIR:-/tmp/focus-wizard-frames}:/frames
+    environment:
+      - SMARTSPECTRA_API_KEY=${SMARTSPECTRA_API_KEY:?Set SMARTSPECTRA_API_KEY}
+    command: >
+      --mode=server
+      --file_stream_path=/frames/frame0000000000000000.jpg
+      --erase_read_files=true
+      --rescan_delay_ms=5
