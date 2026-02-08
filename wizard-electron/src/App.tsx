@@ -330,8 +330,6 @@ function App() {
 
       "Refocus: read one line, write one line.",
       "Attend to the work as if it were a spell circle.",
-      "Hold. Breathe. Continue.",
-      "This is the moment you get it done.",
       "Return to the workbench. Craft your progress.",
 
       "Cast: Concentration. Duration: until finished.",
