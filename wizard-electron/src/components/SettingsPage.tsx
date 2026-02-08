@@ -837,7 +837,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                   {focusData && (
                     <div className="metrics-grid">
                       {/* <div className="metric-item">
-                        <div className="metric-label">💓 Pulse</div>
+                        <div className="metric-label">Pulse</div>
                         <div className="metric-value">
                           {focusData.pulse_bpm > 0
                             ? `${focusData.pulse_bpm.toFixed(1)} BPM`
@@ -846,7 +846,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">🫁 Breathing</div>
+                        <div className="metric-label">Breathing</div>
                         <div className="metric-value">
                           {focusData.breathing_bpm > 0
                             ? `${focusData.breathing_bpm.toFixed(1)} BPM`
@@ -855,7 +855,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div> */}
 
                       <div className="metric-item">
-                        <div className="metric-label">👤 Face Found</div>
+                        <div className="metric-label">Face Found</div>
                         <div className="metric-value">
                           {bridgeStatus === "No faces found."
                             ? "✗ No"
@@ -865,7 +865,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">🚶 Is Away</div>
+                        <div className="metric-label">Is Away</div>
                         <div className="metric-value">
                           {bridgeStatus === "No issues detected."
                             ? "✗ No"
@@ -875,14 +875,14 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">🗣️ Is Talking</div>
+                        <div className="metric-label">Is Talking</div>
                         <div className="metric-value">
                           {focusData.is_talking ? "✓ Yes" : `✗ No`}
                         </div>
                       </div>
 
                       {/* <div className="metric-item">
-                        <div className="metric-label">👁️ Blink Rate</div>
+                        <div className="metric-label">Blink Rate</div>
                         <div className="metric-value">
                           {focusData.blink_rate_per_min > 0
                             ? `${focusData.blink_rate_per_min.toFixed(1)}/min`
@@ -891,7 +891,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div> */}
 
                       <div className="metric-item">
-                        <div className="metric-label">👀 Gaze</div>
+                        <div className="metric-label">Gaze</div>
                         <div className="metric-value">
                           {
                               Number.isFinite(focusData.gaze_x) &&
@@ -906,7 +906,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">🧠 Attentiveness</div>
+                        <div className="metric-label">Attentiveness</div>
                         <div className="metric-value">
                           {attentivenessError
                             ? `ERR`

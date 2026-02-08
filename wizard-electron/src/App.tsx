@@ -65,6 +65,9 @@ function App() {
   const halfAttentiveSinceRef = useRef<number | null>(null);
   const latestGazeRef = useRef<{ gaze_x: number; gaze_y: number } | null>(null);
   const attentivenessInFlightRef = useRef(false);
+  const everSeenFaceRef = useRef(false);
+  const lastFaceSeenAtRef = useRef<number>(0);
+  const awayOverrideRef = useRef(false);
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
   const emotionRef = useRef<WizardEmotion>("happy");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -109,6 +112,12 @@ function App() {
     const now = Date.now();
     const conf = productivityConfidenceRef.current;
     const attn = attentivenessRef.current;
+
+    // Away override: if the user is gone, always be mad.
+    if (awayOverrideRef.current) {
+      setEmotion("mad");
+      return;
+    }
 
     // Attentiveness override rules
     if (attn === 0) {
@@ -649,6 +658,17 @@ function App() {
 
     const unsubs = [
       api.onFocus((data: any) => {
+        const now = Date.now();
+
+        if (data && data.face_detected === true) {
+          everSeenFaceRef.current = true;
+          lastFaceSeenAtRef.current = now;
+          if (awayOverrideRef.current) {
+            awayOverrideRef.current = false;
+            applyEmotionFromSignals();
+          }
+        }
+
         if (data && typeof data.gaze_x === "number" && typeof data.gaze_y === "number") {
           latestGazeRef.current = { gaze_x: data.gaze_x, gaze_y: data.gaze_y };
         }
@@ -660,6 +680,25 @@ function App() {
 
     return () => {
       unsubs.forEach((u) => u());
+    };
+  }, []);
+
+  // Away detection: if no face for >3s => mad; when face returns => clear override.
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (!everSeenFaceRef.current) return;
+
+      const elapsedMs = Date.now() - lastFaceSeenAtRef.current;
+      if (elapsedMs > 3000) {
+        if (!awayOverrideRef.current) {
+          awayOverrideRef.current = true;
+          setEmotion("mad");
+        }
+      }
+    }, 250);
+
+    return () => {
+      window.clearInterval(intervalId);
     };
   }, []);
 
