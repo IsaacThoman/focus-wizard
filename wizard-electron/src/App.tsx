@@ -226,11 +226,18 @@ function App() {
     if (savedState && settings.pomodoroEnabled) {
       try {
         const parsed = JSON.parse(savedState);
+        const restoredMode = parsed.mode ?? "work";
+        // Reset timeRemaining to the full duration on app launch instead of
+        // restoring the persisted value — the countdown should not survive
+        // an app restart.
+        const freshTime = restoredMode === "work"
+          ? settings.pomodoroWorkMinutes * 60
+          : settings.pomodoroBreakMinutes * 60;
         setPomodoroState({
           enabled: settings.pomodoroEnabled,
           isRunning: parsed.isRunning ?? false,
-          timeRemaining: parsed.timeRemaining ?? settings.pomodoroWorkMinutes * 60,
-          mode: parsed.mode ?? "work",
+          timeRemaining: freshTime,
+          mode: restoredMode,
           iteration: parsed.iteration ?? 1,
           totalIterations: settings.pomodoroIterations,
         });
