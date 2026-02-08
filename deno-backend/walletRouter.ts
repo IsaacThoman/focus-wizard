@@ -46,7 +46,7 @@ interface WalletState {
 let walletState: WalletState = {
   vaultBalance: 0,
   earnedBalance: 0,
-  rewardPerCycle: 0.01,  // Default: 0.01 SOL per cycle
+  rewardPerCycle: 0.001,  // Default: 0.001 SOL per cycle
   totalCyclesCompleted: 0,
 };
 
@@ -67,7 +67,7 @@ async function loadWalletState(): Promise<void> {
     walletState = {
       vaultBalance: Math.max(0, safeNum(parsed.vaultBalance, 0)),
       earnedBalance: Math.max(0, safeNum(parsed.earnedBalance, 0)),
-      rewardPerCycle: Math.max(0, safeNum(parsed.rewardPerCycle, 0.01)),
+      rewardPerCycle: Math.max(0, safeNum(parsed.rewardPerCycle, 0.001)),
       totalCyclesCompleted: Math.max(0, Math.floor(safeNum(parsed.totalCyclesCompleted, 0))),
     };
 

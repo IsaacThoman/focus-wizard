@@ -102,12 +102,21 @@ function App() {
   /** Whether the wizard is currently playing a break transition animation */
   const breakTransitionRef = useRef(false);
 
+  // Spell-cast state: triggered when timer penalty maxes out
+  const spellCastingRef = useRef(false);
+  const spellStartTimeRef = useRef<number>(0); // Date.now() when spell started
+  const spellTriggeredForSessionRef = useRef(false); // Only fire once per work session
+  const SPELL_MIN_DURATION_MS = 15_000; // Minimum 15 seconds of fireworks
+
   const handleWandHover = (hovering: boolean) => {
     const manager = spriteManagerRef.current;
     if (!manager) return;
+    // Don't override wand row during spell cast
+    if (spellCastingRef.current) return;
     const wand = manager.get("wand");
     if (wand && wand.kind === "animated") {
       wand.row = hovering ? 1 : 0;
+      wand.colCount = 2; // Rows 0 and 1 both have 2 frames
     }
   };
 
@@ -192,6 +201,37 @@ function App() {
   const handleWandAreaClick = () => {
     window.focusWizard?.openSettings();
   };
+
+  // Dismiss the spell-cast effect: tells main process to fade out overlay
+  const dismissSpellCast = useCallback(() => {
+    if (!spellCastingRef.current) return;
+    spellCastingRef.current = false;
+
+    // Tell main process to dismiss (fade out) the overlay
+    window.focusWizard?.dismissSpell();
+
+    // Restore wand to idle row (row 0, 2 frames)
+    const manager = spriteManagerRef.current;
+    if (manager) {
+      const wand = manager.get("wand");
+      if (wand && wand.kind === "animated") {
+        wand.row = 0;
+        wand.colCount = 2;
+        wand.fps = 2;
+        wand._col = 0;
+        wand._elapsed = 0;
+      }
+    }
+  }, [])
+
+  // Check if the spell can be dismissed: min duration elapsed AND no longer mad
+  const tryDismissSpell = useCallback(() => {
+    if (!spellCastingRef.current) return;
+    const elapsed = Date.now() - spellStartTimeRef.current;
+    if (elapsed >= SPELL_MIN_DURATION_MS && emotionRef.current !== "mad") {
+      dismissSpellCast();
+    }
+  }, [dismissSpellCast])
 
   const applyEmotionFromSignals = useCallback(() => {
     const now = Date.now();
@@ -447,8 +487,15 @@ function App() {
           void speakAngryNudge();
         }
       }
+
+      if (prevEmotion === "mad" && emotion !== "mad") {
+        tryDismissSpell();
+      }
     }
-  }, [emotion, speakAngryNudge]);
+      
+    
+    
+  }, [emotion, speakAngryNudge, tryDismissSpell]);
 
   // Load pomodoro settings from localStorage
   const loadPomodoroSettings = useCallback((): PomodoroSettings => {
@@ -516,6 +563,30 @@ function App() {
     }
   }, [])
 
+  // Trigger the wizard spell-cast effect (fullscreen fireworks overlay)
+  // The spell persists until dismissSpellCast is called.
+  const triggerSpellCast = useCallback(() => {
+    if (spellCastingRef.current) return;
+    spellCastingRef.current = true;
+    spellStartTimeRef.current = Date.now();
+
+    // Set wand to casting row during spell (row 2, 4 frames)
+    const manager = spriteManagerRef.current;
+    if (manager) {
+      const wand = manager.get("wand");
+      if (wand && wand.kind === "animated") {
+        wand.row = 2;
+        wand.colCount = 4;
+        wand.fps = 5;
+        wand._col = 0;
+        wand._elapsed = 0;
+      }
+    }
+
+    // Launch the fullscreen spell overlay window
+    window.focusWizard?.triggerSpell();
+  }, [])
+
   // Handle timer tick - counts down when happy/neutral, up when mad (work mode only)
   // During break mode, always counts down regardless of emotion
   const handleTimerTick = useCallback(() => {
@@ -539,11 +610,22 @@ function App() {
         // During work: count down when happy/neutral, count up when mad (penalty)
         if (currentEmotion === "happy" || currentEmotion === "neutral") {
           newTimeRemaining = Math.max(0, prev.timeRemaining - elapsed);
+          // If spell is active and we're no longer mad, try to dismiss it
+          if (spellCastingRef.current) {
+            setTimeout(() => tryDismissSpell(), 0);
+          }
         } else {
           // When mad, add time (penalty)
           const workMinutes = loadPomodoroSettings().pomodoroWorkMinutes;
           const maxPenalty = workMinutes * 60; // Cap at work session length
           newTimeRemaining = Math.min(maxPenalty, prev.timeRemaining + elapsed);
+
+          // If the timer just hit the max penalty, trigger the spell cast
+          if (newTimeRemaining >= maxPenalty && prev.timeRemaining < maxPenalty && !spellTriggeredForSessionRef.current) {
+            spellTriggeredForSessionRef.current = true;
+            // Schedule outside setState to avoid nested state updates
+            setTimeout(() => triggerSpellCast(), 0);
+          }
         }
       }
 
@@ -560,6 +642,11 @@ function App() {
         // Switch modes
         const newMode = prev.mode === "work" ? "break" : "work";
         const settings = loadPomodoroSettings();
+
+        // Reset spell trigger when entering a new work session
+        if (newMode === "work") {
+          spellTriggeredForSessionRef.current = false;
+        }
 
         // If we just finished a break, increment iteration
         const newIteration = prev.mode === "break"
@@ -605,7 +692,7 @@ function App() {
       savePomodoroState(newState);
       return newState;
     });
-  }, [loadPomodoroSettings, savePomodoroState])
+  }, [loadPomodoroSettings, savePomodoroState, triggerSpellCast, tryDismissSpell])
 
   // Keep a ref to the latest handleTimerTick so the interval always calls the latest version
   const handleTimerTickRef = useRef(handleTimerTick);
@@ -673,9 +760,11 @@ function App() {
               enabled: settings.pomodoroEnabled ?? prev.enabled,
               totalIterations: settings.pomodoroIterations ?? prev.totalIterations,
             };
-            // If enabling and wasn't enabled before, start fresh
+            // If enabling and wasn't enabled before, reset fresh but do NOT auto-start.
+            // Starting is an explicit action from the settings window.
             if (settings.pomodoroEnabled && !prev.enabled) {
-              newState.isRunning = true;
+              spellTriggeredForSessionRef.current = false;
+              newState.isRunning = false;
               newState.isPaused = false;
               newState.timeRemaining = (settings.pomodoroWorkMinutes ?? 25) * 60;
               newState.mode = "work";
@@ -762,8 +851,8 @@ function App() {
           z: 1,
         });
 
-        // Load wand-hand sprite sheet (160x256, 80x128 frames = 2 cols x 2 rows)
-        // Row 0 = idle wand, Row 1 = sparkle wand (on hover)
+        // Load wand-hand sprite sheet (320x384, 80x128 frames = 4 cols x 3 rows)
+        // Row 0 = idle wand (2 frames), Row 1 = sparkle wand on hover (2 frames), Row 2 = casting wand (4 frames)
         const wandImg = await loadImage(spriteUrl("wand-hand.png"));
         if (cancelled) return;
 
@@ -776,6 +865,7 @@ function App() {
           playing: true,
           visible: false, // Start hidden since wizard starts sleeping
           row: 0,
+          colCount: 2, // Rows 0 and 1 only have 2 frames
           z: 2,
         });
 
@@ -1067,9 +1157,6 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
-
-
-        
 {/* Uncomment this if you want to debug the confidence monitor and the attentivenes monitor */}
 
 

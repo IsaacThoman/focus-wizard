@@ -37,36 +37,25 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null = null;
 let settingsWin: BrowserWindow | null = null;
+let spellOverlayWin: BrowserWindow | null = null;
 let bridge: BridgeManager | null = null;
 let isQuitting = false;
-let settingsMode: "setup" | "settings" = "settings";
 
-function loadSettings(mode: "setup" | "settings") {
-  settingsMode = mode;
+function loadSettings() {
   if (!settingsWin) return;
-
-  settingsWin.setTitle(
-    mode === "setup" ? "Setup - Focus Wizard" : "Settings - Focus Wizard",
-  );
+  settingsWin.setTitle("Settings - Focus Wizard");
 
   if (VITE_DEV_SERVER_URL) {
-    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html?mode=${mode}`);
+    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html`);
   } else {
-    settingsWin.loadFile(path.join(RENDERER_DIST, "settings.html"), {
-      query: { mode },
-    });
+    settingsWin.loadFile(path.join(RENDERER_DIST, "settings.html"));
   }
 }
 
-function createSettingsWindow(mode: "setup" | "settings" = "settings") {
+function createSettingsWindow() {
   if (settingsWin) {
     if (settingsWin.isMinimized()) {
       settingsWin.restore();
-    }
-
-    // If we're re-opening from setup, switch to the normal settings mode.
-    if (settingsMode !== mode) {
-      loadSettings(mode);
     }
 
     settingsWin.show();
@@ -80,9 +69,7 @@ function createSettingsWindow(mode: "setup" | "settings" = "settings") {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: mode === "setup"
-      ? "Setup - Focus Wizard"
-      : "Settings - Focus Wizard",
+    title: "Settings - Focus Wizard",
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
       autoplayPolicy: "no-user-gesture-required",
@@ -102,7 +89,7 @@ function createSettingsWindow(mode: "setup" | "settings" = "settings") {
     settingsWin = null;
   });
 
-  loadSettings(mode);
+  loadSettings();
 }
 
 function createWindow() {
@@ -166,7 +153,9 @@ app.on("activate", () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createSettingsWindow("setup");
+    createWindow();
+    startScreenDiffMonitor();
+    createSettingsWindow();
   }
 });
 
@@ -241,6 +230,25 @@ function computeDelta(a: Buffer, b: Buffer): number {
   return pixelCount === 0 ? 0 : totalDiff / pixelCount;
 }
 
+async function withSpellOverlayTemporarilyHidden<T>(fn: () => Promise<T>): Promise<T> {
+  const overlay = spellOverlayWin;
+  if (!overlay || overlay.isDestroyed()) return await fn();
+
+  const prevOpacity = overlay.getOpacity();
+  if (prevOpacity <= 0) return await fn();
+
+  try {
+    overlay.setOpacity(0);
+    // Give the compositor a moment so the overlay isn't captured.
+    await new Promise((r) => setTimeout(r, 50));
+    return await fn();
+  } finally {
+    if (overlay && !overlay.isDestroyed()) {
+      overlay.setOpacity(prevOpacity);
+    }
+  }
+}
+
 /** Send the "take a screenshot now" signal to the renderer window. */
 function emitScreenshotTrigger() {
   lastTriggerTime = Date.now();
@@ -308,44 +316,103 @@ function startScreenDiffMonitor() {
     }
   }, 1_000);
 }
+// ── Spell overlay (fullscreen transparent fireworks) ──
+
+function createSpellOverlayWindow() {
+  if (spellOverlayWin && !spellOverlayWin.isDestroyed()) {
+    // Already showing, ignore
+    return;
+  }
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.size;
+
+  spellOverlayWin = new BrowserWindow({
+    width,
+    height,
+    x: 0,
+    y: 0,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.mjs"),
+    },
+  });
+
+  // Allow clicks to pass through so the user isn't blocked
+  spellOverlayWin.setIgnoreMouseEvents(true);
+
+  spellOverlayWin.on("closed", () => {
+    spellOverlayWin = null;
+  });
+
+  if (VITE_DEV_SERVER_URL) {
+    spellOverlayWin.loadURL(`${VITE_DEV_SERVER_URL}spell-overlay.html`);
+  } else {
+    spellOverlayWin.loadFile(
+      path.join(RENDERER_DIST, "spell-overlay.html"),
+    );
+  }
+}
+
+/** Tell the spell overlay to start its fade-out animation (it will close itself when done). */
+function dismissSpellOverlay() {
+  if (spellOverlayWin && !spellOverlayWin.isDestroyed()) {
+    spellOverlayWin.webContents.send("focus-wizard:dismiss-spell");
+  }
+}
+
 app.on("before-quit", () => {
   isQuitting = true;
   bridge?.stop();
 });
 
 app.whenReady().then(() => {
-  createSettingsWindow("setup");
+  // Launch wizard + settings together on startup.
+  createWindow();
+  startScreenDiffMonitor();
+  createSettingsWindow();
 });
 
 ipcMain.handle("focus-wizard:capture-page-screenshot", async () => {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const targetWidth = Math.max(
-    1,
-    Math.floor(primaryDisplay.size.width * primaryDisplay.scaleFactor),
-  );
-  const targetHeight = Math.max(
-    1,
-    Math.floor(primaryDisplay.size.height * primaryDisplay.scaleFactor),
-  );
+  return await withSpellOverlayTemporarilyHidden(async () => {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const targetWidth = Math.max(
+      1,
+      Math.floor(primaryDisplay.size.width * primaryDisplay.scaleFactor),
+    );
+    const targetHeight = Math.max(
+      1,
+      Math.floor(primaryDisplay.size.height * primaryDisplay.scaleFactor),
+    );
 
-  const sources = await desktopCapturer.getSources({
-    types: ["screen"],
-    thumbnailSize: {
-      width: targetWidth,
-      height: targetHeight,
-    },
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: {
+        width: targetWidth,
+        height: targetHeight,
+      },
+    });
+
+    const source = sources.find((item) =>
+      item.display_id === String(primaryDisplay.id)
+    ) ??
+      sources[0];
+
+    if (!source) {
+      throw new Error("No screen source available for capture");
+    }
+
+    return source.thumbnail.toPNG().toString("base64");
   });
-
-  const source = sources.find((item) =>
-    item.display_id === String(primaryDisplay.id)
-  ) ??
-    sources[0];
-
-  if (!source) {
-    throw new Error("No screen source available for capture");
-  }
-
-  return source.thumbnail.toPNG().toString("base64");
 });
 
 ipcMain.handle("focus-wizard:open-settings", () => {
@@ -655,3 +722,17 @@ ipcMain.handle(
     }
   },
 );
+ipcMain.handle("focus-wizard:trigger-spell", () => {
+  createSpellOverlayWindow();
+});
+
+ipcMain.handle("focus-wizard:dismiss-spell", () => {
+  dismissSpellOverlay();
+});
+
+ipcMain.handle("focus-wizard:close-spell-overlay", () => {
+  if (spellOverlayWin && !spellOverlayWin.isDestroyed()) {
+    spellOverlayWin.close();
+    spellOverlayWin = null;
+  }
+});

@@ -19,6 +19,8 @@ export interface AnimatedSprite {
   reverse: boolean;
   /** Active row to animate across (0-based). Changes which horizontal strip is used. */
   row: number;
+  /** Override columns to animate within the active row (defaults to sheet.framesPerRow) */
+  colCount?: number;
   /** Optional z-index for draw ordering (lower draws first) */
   z?: number;
   /** Whether to draw this sprite (default true) */
@@ -63,6 +65,7 @@ export class SpriteManager {
       playing?: boolean;
       reverse?: boolean;
       row?: number;
+      colCount?: number;
       z?: number;
       visible?: boolean;
       onComplete?: (() => void) | null;
@@ -81,6 +84,7 @@ export class SpriteManager {
       loop: options.loop ?? true,
       reverse: options.reverse ?? false,
       row: options.row ?? 0,
+      colCount: options.colCount,
       z: options.z ?? 0,
       visible: options.visible ?? true,
       onComplete: options.onComplete ?? null,
@@ -130,12 +134,13 @@ export class SpriteManager {
 
       while (sprite._elapsed >= frameDuration) {
         sprite._elapsed -= frameDuration;
+        const maxCol = sprite.colCount ?? sprite.sheet.framesPerRow;
 
         if (sprite.reverse) {
           const prevCol = sprite._col - 1;
           if (prevCol < 0) {
             if (sprite.loop) {
-              sprite._col = sprite.sheet.framesPerRow - 1;
+              sprite._col = maxCol - 1;
             } else {
               sprite.playing = false;
               sprite.onComplete?.();
@@ -145,7 +150,7 @@ export class SpriteManager {
           }
         } else {
           const nextCol = sprite._col + 1;
-          if (nextCol >= sprite.sheet.framesPerRow) {
+          if (nextCol >= maxCol) {
             if (sprite.loop) {
               sprite._col = 0;
             } else {
