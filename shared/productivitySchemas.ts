@@ -9,6 +9,7 @@ export const getProductivityConfidenceRequestSchema = z.object({
 
 export const getProductivityConfidenceResponseSchema = z.object({
   productivityConfidence: z.number().min(0).max(1),
+  productivityVoiceLine: z.string().min(1).max(280),
 });
 
 export type GetProductivityConfidenceRequest = z.infer<

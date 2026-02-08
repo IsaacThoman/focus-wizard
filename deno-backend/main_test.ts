@@ -20,6 +20,16 @@ Deno.test("request schema accepts screenshot payload", () => {
 Deno.test("response schema rejects confidence outside [0,1]", () => {
   const parsed = getProductivityConfidenceResponseSchema.safeParse({
     productivityConfidence: 2,
+    productivityVoiceLine: "Return to your duties.",
+  });
+
+  assertEquals(parsed.success, false);
+});
+
+Deno.test("response schema requires a non-empty voice line", () => {
+  const parsed = getProductivityConfidenceResponseSchema.safeParse({
+    productivityConfidence: 0.25,
+    productivityVoiceLine: "",
   });
 
   assertEquals(parsed.success, false);
