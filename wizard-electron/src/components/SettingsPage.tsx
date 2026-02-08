@@ -24,6 +24,7 @@ interface FocusData {
 }
 
 export interface SettingsData {
+  pomodoroEnabled: boolean;
   pomodoroWorkMinutes: number;
   pomodoroBreakMinutes: number;
   pomodoroIterations: number;
@@ -32,6 +33,7 @@ export interface SettingsData {
 }
 
 const DEFAULT_SETTINGS: SettingsData = {
+  pomodoroEnabled: false,
   pomodoroWorkMinutes: 25,
   pomodoroBreakMinutes: 5,
   pomodoroIterations: 4,
@@ -59,6 +61,15 @@ interface SettingsPageProps {
   mode?: "setup" | "settings";
 }
 
+interface PomodoroStatus {
+  enabled: boolean;
+  isRunning: boolean;
+  timeRemaining: number;
+  mode: "work" | "break";
+  iteration: number;
+  totalIterations: number;
+}
+
 export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const isSetup = mode === "setup";
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
@@ -73,6 +84,15 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
+
+  const [pomodoroStatus, setPomodoroStatus] = useState<PomodoroStatus>({
+    enabled: false,
+    isRunning: false,
+    timeRemaining: 0,
+    mode: "work",
+    iteration: 1,
+    totalIterations: 4,
+  });
 
   // Webcam capture - start immediately when dev mode is on (before bridge)
   const { stream, isActive: webcamActive, error: webcamError } = useWebcam({
@@ -131,8 +151,32 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
         console.error("Failed to parse saved settings:", e);
       }
     }
+    // Load pomodoro status from localStorage
+    const savedPomodoro = localStorage.getItem("focus-wizard-pomodoro-status");
+    if (savedPomodoro) {
+      try {
+        const parsed = JSON.parse(savedPomodoro);
+        setPomodoroStatus(parsed);
+      } catch (e) {
+        console.error("Failed to parse pomodoro status:", e);
+      }
+    }
     // Also fetch wallet status on mount
     fetchWalletStatus();
+
+    // Listen for pomodoro status updates from main window
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "focus-wizard-pomodoro-status" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          setPomodoroStatus(parsed);
+        } catch (err) {
+          console.error("Failed to parse pomodoro status update:", err);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, [fetchWalletStatus]);
 
   // Subscribe to bridge events
@@ -349,6 +393,31 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     }
   };
 
+  const handlePomodoroToggle = () => {
+    const newEnabled = !settings.pomodoroEnabled;
+    setSettings({ ...settings, pomodoroEnabled: newEnabled });
+    // Update pomodoro status
+    const newStatus = {
+      ...pomodoroStatus,
+      enabled: newEnabled,
+      isRunning: newEnabled,
+      timeRemaining: settings.pomodoroWorkMinutes * 60,
+      mode: "work" as const,
+      iteration: 1,
+      totalIterations: settings.pomodoroIterations,
+    };
+    setPomodoroStatus(newStatus);
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
+    localStorage.setItem("focus-wizard-settings", JSON.stringify({ ...settings, pomodoroEnabled: newEnabled }));
+  };
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(Math.abs(seconds) / 60);
+    const secs = Math.abs(seconds) % 60;
+    const sign = seconds < 0 ? "-" : "";
+    return `${sign}${mins}:${secs.toString().padStart(2, "0")}`;
+  }
+
   const handleClick = (e: React.MouseEvent) => {
     const baseId = Date.now();
     const newSparkles: ClickSparkle[] = [];
@@ -415,11 +484,29 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
       <div className="settings-panel standalone">
         <div className="settings-header">
           <h2>{isSetup ? "WIZARD SETUP" : "WIZARD SETTINGS"}</h2>
+          {pomodoroStatus.enabled && (
+            <div className="pomodoro-status-header">
+              <div className={`pomodoro-indicator ${pomodoroStatus.isRunning ? "running" : "paused"}`} />
+              <span className="pomodoro-mode">{pomodoroStatus.mode === "work" ? "Focus" : "Rest"}</span>
+              <span className="pomodoro-timer">{formatTime(pomodoroStatus.timeRemaining)}</span>
+              <span className="pomodoro-iteration">{pomodoroStatus.iteration}/{pomodoroStatus.totalIterations}</span>
+            </div>
+          )}
         </div>
 
         <div className="settings-content">
           <section className="settings-section">
-            <h3>Pomodoro Timer</h3>
+            <div className="settings-section-header">
+              <h3>Pomodoro Timer</h3>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={settings.pomodoroEnabled}
+                  onChange={handlePomodoroToggle}
+                />
+                <span className="toggle-slider" />
+              </label>
+            </div>
             <div className="settings-field">
               <label htmlFor="work-minutes">Focus Time (minutes)</label>
               <input
@@ -476,9 +563,9 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
           </section>
 
           <section className="settings-section">
-            <h3>Developer Settings</h3>
-            <div className="settings-field">
-              <label htmlFor="dev-mode">
+            <div className="settings-section-header">
+              <h3>Developer Settings</h3>
+              <label className="toggle-switch">
                 <input
                   id="dev-mode"
                   type="checkbox"
@@ -488,8 +575,12 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                     // Clear auth error when toggling to allow retry after adding credits
                     setAuthError(false);
                   }}
-                  style={{ width: "auto", marginRight: "8px" }}
                 />
+                <span className="toggle-slider" />
+              </label>
+            </div>
+            <div className="settings-field">
+              <label htmlFor="dev-mode" style={{ cursor: "pointer" }}>
                 Enable Dev Mode (Show Biometric Metrics)
               </label>
             </div>

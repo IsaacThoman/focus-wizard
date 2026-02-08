@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   type GetProductivityConfidenceRequest,
   getProductivityConfidenceResponseSchema,
@@ -17,6 +17,22 @@ const EMOTION_ROW: Record<WizardEmotion, number> = {
   neutral: 2,
   mad: 0,
 };
+
+interface PomodoroSettings {
+  pomodoroEnabled: boolean
+  pomodoroWorkMinutes: number
+  pomodoroBreakMinutes: number
+  pomodoroIterations: number
+}
+
+interface PomodoroState {
+  enabled: boolean
+  isRunning: boolean
+  timeRemaining: number
+  mode: 'work' | 'break'
+  iteration: number
+  totalIterations: number
+}
 
 /** Load an image from a URL and return a promise that resolves when loaded. */
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -43,6 +59,18 @@ function App() {
   const spriteManagerRef = useRef<SpriteManager | null>(null);
   const animFrameRef = useRef<number>(0);
 
+  // Pomodoro timer state
+  const [pomodoroState, setPomodoroState] = useState<PomodoroState>({
+    enabled: false,
+    isRunning: false,
+    timeRemaining: 25 * 60,
+    mode: "work",
+    iteration: 1,
+    totalIterations: 4,
+  });
+  const pomodoroIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTickRef = useRef<number>(Date.now());
+
   const handleWandHover = (hovering: boolean) => {
     const manager = spriteManagerRef.current;
     if (!manager) return;
@@ -65,6 +93,165 @@ function App() {
       wizard.row = EMOTION_ROW[emotion];
     }
   }, [emotion]);
+
+  // Load pomodoro settings from localStorage
+  const loadPomodoroSettings = useCallback((): PomodoroSettings => {
+    const saved = localStorage.getItem("focus-wizard-settings");
+    const defaults: PomodoroSettings = {
+      pomodoroEnabled: false,
+      pomodoroWorkMinutes: 25,
+      pomodoroBreakMinutes: 5,
+      pomodoroIterations: 4,
+    };
+    if (saved) {
+      try {
+        return { ...defaults, ...JSON.parse(saved) };
+      } catch (e) {
+        console.error("Failed to parse pomodoro settings:", e);
+      }
+    }
+    return defaults;
+  }, [])
+
+  // Save pomodoro state to localStorage (for settings window to read)
+  const savePomodoroState = useCallback((state: PomodoroState) => {
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(state));
+  }, [])
+
+  // Handle timer tick - counts down when happy/neutral, up when mad
+  const handleTimerTick = useCallback(() => {
+    const now = Date.now();
+    const elapsed = Math.floor((now - lastTickRef.current) / 1000);
+    lastTickRef.current = now;
+
+    if (elapsed <= 0) return;
+
+    setPomodoroState((prev) => {
+      if (!prev.enabled || !prev.isRunning) return prev;
+
+      let newTimeRemaining = prev.timeRemaining;
+
+      // Count down when happy/neutral, count up when mad (penalty)
+      if (emotion === "happy" || emotion === "neutral") {
+        newTimeRemaining = Math.max(0, prev.timeRemaining - elapsed);
+      } else {
+        // When mad, add time (penalty)
+        const workMinutes = loadPomodoroSettings().pomodoroWorkMinutes;
+        const maxPenalty = workMinutes * 60; // Cap at work session length
+        newTimeRemaining = Math.min(maxPenalty, prev.timeRemaining + elapsed);
+      }
+
+      // Check if timer completed
+      if (newTimeRemaining === 0 && emotion !== "mad") {
+        // Switch modes
+        const newMode = prev.mode === "work" ? "break" : "work";
+        const settings = loadPomodoroSettings();
+        const newTime = newMode === "work"
+          ? settings.pomodoroWorkMinutes * 60
+          : settings.pomodoroBreakMinutes * 60;
+
+        // If we just finished a break, increment iteration
+        const newIteration = prev.mode === "break"
+          ? Math.min(prev.iteration + 1, prev.totalIterations)
+          : prev.iteration;
+
+        const newState: PomodoroState = {
+          ...prev,
+          timeRemaining: newTime,
+          mode: newMode,
+          iteration: newIteration,
+        };
+        savePomodoroState(newState);
+        return newState;
+      }
+
+      const newState = { ...prev, timeRemaining: newTimeRemaining };
+      savePomodoroState(newState);
+      return newState;
+    });
+  }, [emotion, loadPomodoroSettings, savePomodoroState])
+
+  // Initialize and run pomodoro timer
+  useEffect(() => {
+    // Load initial state from localStorage
+    const settings = loadPomodoroSettings();
+    const savedState = localStorage.getItem("focus-wizard-pomodoro-status");
+
+    if (savedState && settings.pomodoroEnabled) {
+      try {
+        const parsed = JSON.parse(savedState);
+        setPomodoroState({
+          enabled: settings.pomodoroEnabled,
+          isRunning: parsed.isRunning ?? false,
+          timeRemaining: parsed.timeRemaining ?? settings.pomodoroWorkMinutes * 60,
+          mode: parsed.mode ?? "work",
+          iteration: parsed.iteration ?? 1,
+          totalIterations: settings.pomodoroIterations,
+        });
+      } catch (e) {
+        console.error("Failed to parse saved pomodoro state:", e);
+        setPomodoroState({
+          enabled: settings.pomodoroEnabled,
+          isRunning: settings.pomodoroEnabled,
+          timeRemaining: settings.pomodoroWorkMinutes * 60,
+          mode: "work",
+          iteration: 1,
+          totalIterations: settings.pomodoroIterations,
+        });
+      }
+    } else {
+      setPomodoroState({
+        enabled: settings.pomodoroEnabled,
+        isRunning: settings.pomodoroEnabled,
+        timeRemaining: settings.pomodoroWorkMinutes * 60,
+        mode: "work",
+        iteration: 1,
+        totalIterations: settings.pomodoroIterations,
+      });
+    }
+
+    lastTickRef.current = Date.now();
+
+    // Start the timer interval
+    pomodoroIntervalRef.current = setInterval(handleTimerTick, 1000);
+
+    return () => {
+      if (pomodoroIntervalRef.current) {
+        clearInterval(pomodoroIntervalRef.current);
+      }
+    };
+  }, [loadPomodoroSettings, handleTimerTick])
+
+  // Listen for settings changes from storage events
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "focus-wizard-settings" && e.newValue) {
+        try {
+          const settings = JSON.parse(e.newValue);
+          setPomodoroState((prev) => {
+            const newState: PomodoroState = {
+              ...prev,
+              enabled: settings.pomodoroEnabled ?? prev.enabled,
+              totalIterations: settings.pomodoroIterations ?? prev.totalIterations,
+            };
+            // If enabling and wasn't enabled before, reset
+            if (settings.pomodoroEnabled && !prev.enabled) {
+              newState.isRunning = true;
+              newState.timeRemaining = (settings.pomodoroWorkMinutes ?? 25) * 60;
+              newState.mode = "work";
+              newState.iteration = 1;
+            }
+            savePomodoroState(newState);
+            return newState;
+          });
+        } catch (err) {
+          console.error("Failed to parse settings update:", err);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [savePomodoroState])
 
   // Main render loop: sets up the SpriteManager, loads sprites, runs animation
   useEffect(() => {
@@ -229,6 +416,13 @@ function App() {
     };
   }, []);
 
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(Math.abs(seconds) / 60);
+    const secs = Math.abs(seconds) % 60;
+    const sign = seconds < 0 ? "-" : "";
+    return `${sign}${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
   return (
     <>
       <main className="pixel-stage">
@@ -247,6 +441,13 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
+        {pomodoroState.enabled && (
+          <div className={`pomodoro-display ${emotion === "mad" ? "penalty" : ""}`}>
+            <span className="pomodoro-mode-indicator">{pomodoroState.mode === "work" ? "FOCUS" : "REST"}</span>
+            <span className="pomodoro-time">{formatTime(pomodoroState.timeRemaining)}</span>
+            <span className="pomodoro-progress">{pomodoroState.iteration}/{pomodoroState.totalIterations}</span>
+          </div>
+        )}
         <div className="confidence-pill">
           Confidence: {productivityConfidence === null
             ? "--"

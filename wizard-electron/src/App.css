@@ -43,8 +43,8 @@
 
 .confidence-pill {
   position: fixed;
-  left: 8px;
-  bottom: 8px;
+  right: 8px;
+  top: 8px;
   padding: 4px 8px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.6);
@@ -71,4 +71,66 @@
 .window-titlebar.visible {
   opacity: 1;
   background: rgba(0, 0, 0, 0.3);
+}
+
+/* Pomodoro Timer Display */
+.pomodoro-display {
+  position: fixed;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(45, 27, 78, 0.9);
+  border: 2px solid #8b6bb7;
+  border-radius: 4px;
+  font-family: monospace;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.pomodoro-display.penalty {
+  border-color: #b76b6b;
+  animation: penalty-pulse 1s ease-in-out infinite;
+}
+
+@keyframes penalty-pulse {
+  0%, 100% { 
+    border-color: #b76b6b;
+    box-shadow: 0 2px 8px rgba(183, 107, 107, 0.5);
+  }
+  50% { 
+    border-color: #ff8888;
+    box-shadow: 0 2px 12px rgba(255, 136, 136, 0.8);
+  }
+}
+
+.pomodoro-mode-indicator {
+  font-size: 10px;
+  font-weight: bold;
+  color: #d4a5ff;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.pomodoro-time {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f4d58d;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
+  min-width: 60px;
+  text-align: center;
+}
+
+.pomodoro-display.penalty .pomodoro-time {
+  color: #ffb3b3;
+}
+
+.pomodoro-progress {
+  font-size: 10px;
+  color: #8b6bb7;
 }
