@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   type GetProductivityConfidenceRequest,
   getProductivityConfidenceResponseSchema,
 } from "@shared/productivitySchemas";
-import { SpriteManager, SpriteSheet } from "./sprites";
+import { SpriteManager, SpriteSheet, NumberRenderer } from "./sprites";
+import type { NumberColor } from "./sprites";
 import "./App.css";
 
 const PRODUCTIVITY_ENDPOINT = "http://localhost:8000/getProductivityConfidence";
@@ -17,6 +18,22 @@ const EMOTION_ROW: Record<WizardEmotion, number> = {
   neutral: 2,
   mad: 0,
 };
+
+interface PomodoroSettings {
+  pomodoroEnabled: boolean
+  pomodoroWorkMinutes: number
+  pomodoroBreakMinutes: number
+  pomodoroIterations: number
+}
+
+interface PomodoroState {
+  enabled: boolean
+  isRunning: boolean
+  timeRemaining: number
+  mode: 'work' | 'break'
+  iteration: number
+  totalIterations: number
+}
 
 /** Load an image from a URL and return a promise that resolves when loaded. */
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -34,14 +51,29 @@ function spriteUrl(filename: string): string {
 }
 
 function App() {
-  const [productivityConfidence, setProductivityConfidence] = useState<
+  const [, setProductivityConfidence] = useState<
     number | null
   >(null);
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
+  const emotionRef = useRef<WizardEmotion>("happy");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenshotInFlightRef = useRef(false);
   const spriteManagerRef = useRef<SpriteManager | null>(null);
+  const numberRendererRef = useRef<NumberRenderer | null>(null);
   const animFrameRef = useRef<number>(0);
+
+  // Pomodoro timer state
+  const [pomodoroState, setPomodoroState] = useState<PomodoroState>({
+    enabled: false,
+    isRunning: false,
+    timeRemaining: 25 * 60,
+    mode: "work",
+    iteration: 1,
+    totalIterations: 4,
+  });
+  const pomodoroIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTickRef = useRef<number>(Date.now());
+  const pomodoroStateRef = useRef(pomodoroState);
 
   const handleWandHover = (hovering: boolean) => {
     const manager = spriteManagerRef.current;
@@ -52,12 +84,18 @@ function App() {
     }
   };
 
+  // Keep pomodoroStateRef in sync for the draw loop
+  useEffect(() => {
+    pomodoroStateRef.current = pomodoroState;
+  }, [pomodoroState]);
+
   const handleWandAreaClick = () => {
     window.focusWizard?.openSettings();
   };
 
   // When emotion changes, update the wizard sprite's active row
   useEffect(() => {
+    emotionRef.current = emotion;
     const manager = spriteManagerRef.current;
     if (!manager) return;
     const wizard = manager.get("wizard");
@@ -65,6 +103,191 @@ function App() {
       wizard.row = EMOTION_ROW[emotion];
     }
   }, [emotion]);
+
+  // Load pomodoro settings from localStorage
+  const loadPomodoroSettings = useCallback((): PomodoroSettings => {
+    const saved = localStorage.getItem("focus-wizard-settings");
+    const defaults: PomodoroSettings = {
+      pomodoroEnabled: false,
+      pomodoroWorkMinutes: 25,
+      pomodoroBreakMinutes: 5,
+      pomodoroIterations: 4,
+    };
+    if (saved) {
+      try {
+        return { ...defaults, ...JSON.parse(saved) };
+      } catch (e) {
+        console.error("Failed to parse pomodoro settings:", e);
+      }
+    }
+    return defaults;
+  }, [])
+
+  // Save pomodoro state to localStorage (for settings window to read)
+  const savePomodoroState = useCallback((state: PomodoroState) => {
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(state));
+  }, [])
+
+  // Handle timer tick - counts down when happy/neutral, up when mad
+  const handleTimerTick = useCallback(() => {
+    const now = Date.now();
+    const elapsed = Math.floor((now - lastTickRef.current) / 1000);
+    if (elapsed <= 0) return;
+    // Only advance by the whole seconds consumed, preserving the sub-second remainder
+    lastTickRef.current += elapsed * 1000;
+
+    const currentEmotion = emotionRef.current;
+
+    setPomodoroState((prev) => {
+      if (!prev.enabled || !prev.isRunning) return prev;
+
+      let newTimeRemaining = prev.timeRemaining;
+
+      // Count down when happy/neutral, count up when mad (penalty)
+      if (currentEmotion === "happy" || currentEmotion === "neutral") {
+        newTimeRemaining = Math.max(0, prev.timeRemaining - elapsed);
+      } else {
+        // When mad, add time (penalty)
+        const workMinutes = loadPomodoroSettings().pomodoroWorkMinutes;
+        const maxPenalty = workMinutes * 60; // Cap at work session length
+        newTimeRemaining = Math.min(maxPenalty, prev.timeRemaining + elapsed);
+      }
+
+      // Check if timer completed
+      if (newTimeRemaining === 0 && currentEmotion !== "mad") {
+        // Switch modes
+        const newMode = prev.mode === "work" ? "break" : "work";
+        const settings = loadPomodoroSettings();
+        const newTime = newMode === "work"
+          ? settings.pomodoroWorkMinutes * 60
+          : settings.pomodoroBreakMinutes * 60;
+
+        // If we just finished a break, increment iteration
+        const newIteration = prev.mode === "break"
+          ? prev.iteration + 1
+          : prev.iteration;
+
+        // Stop if all iterations are complete (finished last break)
+        if (newIteration > prev.totalIterations) {
+          const doneState: PomodoroState = {
+            ...prev,
+            isRunning: false,
+            timeRemaining: 0,
+            mode: "work",
+            iteration: prev.totalIterations,
+          };
+          savePomodoroState(doneState);
+          return doneState;
+        }
+
+        const newState: PomodoroState = {
+          ...prev,
+          timeRemaining: newTime,
+          mode: newMode,
+          iteration: newIteration,
+        };
+        savePomodoroState(newState);
+        return newState;
+      }
+
+      const newState = { ...prev, timeRemaining: newTimeRemaining };
+      savePomodoroState(newState);
+      return newState;
+    });
+  }, [loadPomodoroSettings, savePomodoroState])
+
+  // Keep a ref to the latest handleTimerTick so the interval always calls the latest version
+  const handleTimerTickRef = useRef(handleTimerTick);
+  useEffect(() => {
+    handleTimerTickRef.current = handleTimerTick;
+  }, [handleTimerTick]);
+
+  // Initialize pomodoro state from localStorage on mount (runs once)
+  useEffect(() => {
+    const settings = loadPomodoroSettings();
+    const savedState = localStorage.getItem("focus-wizard-pomodoro-status");
+
+    if (savedState && settings.pomodoroEnabled) {
+      try {
+        const parsed = JSON.parse(savedState);
+        setPomodoroState({
+          enabled: settings.pomodoroEnabled,
+          isRunning: parsed.isRunning ?? false,
+          timeRemaining: parsed.timeRemaining ?? settings.pomodoroWorkMinutes * 60,
+          mode: parsed.mode ?? "work",
+          iteration: parsed.iteration ?? 1,
+          totalIterations: settings.pomodoroIterations,
+        });
+      } catch (e) {
+        console.error("Failed to parse saved pomodoro state:", e);
+        setPomodoroState({
+          enabled: settings.pomodoroEnabled,
+          isRunning: settings.pomodoroEnabled,
+          timeRemaining: settings.pomodoroWorkMinutes * 60,
+          mode: "work",
+          iteration: 1,
+          totalIterations: settings.pomodoroIterations,
+        });
+      }
+    } else {
+      setPomodoroState({
+        enabled: settings.pomodoroEnabled,
+        isRunning: settings.pomodoroEnabled,
+        timeRemaining: settings.pomodoroWorkMinutes * 60,
+        mode: "work",
+        iteration: 1,
+        totalIterations: settings.pomodoroIterations,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Run the pomodoro timer interval (stable, runs once)
+  useEffect(() => {
+    lastTickRef.current = Date.now();
+
+    // Start the timer interval — uses ref so callback identity never causes re-setup
+    pomodoroIntervalRef.current = setInterval(() => {
+      handleTimerTickRef.current();
+    }, 1000);
+
+    return () => {
+      if (pomodoroIntervalRef.current) {
+        clearInterval(pomodoroIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Listen for settings changes from storage events
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "focus-wizard-settings" && e.newValue) {
+        try {
+          const settings = JSON.parse(e.newValue);
+          setPomodoroState((prev) => {
+            const newState: PomodoroState = {
+              ...prev,
+              enabled: settings.pomodoroEnabled ?? prev.enabled,
+              totalIterations: settings.pomodoroIterations ?? prev.totalIterations,
+            };
+            // If enabling and wasn't enabled before, reset
+            if (settings.pomodoroEnabled && !prev.enabled) {
+              newState.isRunning = true;
+              newState.timeRemaining = (settings.pomodoroWorkMinutes ?? 25) * 60;
+              newState.mode = "work";
+              newState.iteration = 1;
+            }
+            savePomodoroState(newState);
+            return newState;
+          });
+        } catch (err) {
+          console.error("Failed to parse settings update:", err);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [savePomodoroState])
 
   // Main render loop: sets up the SpriteManager, loads sprites, runs animation
   useEffect(() => {
@@ -131,6 +354,11 @@ function App() {
           row: 0,
           z: 2,
         });
+
+        // Load number sprites for pomodoro timer display on the pot
+        const numberImg = await loadImage(spriteUrl("number-sprites.png"));
+        if (cancelled) return;
+        numberRendererRef.current = new NumberRenderer(numberImg);
       } catch (err) {
         console.error("Failed to load sprites:", err);
         if (!cancelled) {
@@ -142,6 +370,15 @@ function App() {
 
     void setup();
 
+    // Helper: pick number sprite colour based on pomodoro state
+    const getTimerColor = (): NumberColor => {
+      const ps = pomodoroStateRef.current;
+      if (ps.mode === "break") return "green";
+      // During work: blue when counting down, red when counting up (penalty)
+      if (emotionRef.current === "mad") return "red";
+      return "blue";
+    };
+
     // Animation loop
     let lastTime = performance.now();
     const tick = (now: number) => {
@@ -151,6 +388,22 @@ function App() {
 
       manager.update(delta);
       manager.draw(ctx);
+
+      // Draw pomodoro timer on the pot using sprite numbers
+      const ps = pomodoroStateRef.current;
+      const nr = numberRendererRef.current;
+      if (ps.enabled && nr) {
+        const mins = Math.floor(Math.abs(ps.timeRemaining) / 60);
+        const secs = Math.abs(ps.timeRemaining) % 60;
+        const timeStr =
+          mins.toString().padStart(2, "0") +
+          ":" +
+          secs.toString().padStart(2, "0");
+        const color = getTimerColor();
+
+        // Centre the time string on the pot (canvas centre, near bottom)
+        nr.drawTextCentered(ctx, timeStr, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 24, color);
+      }
 
       animFrameRef.current = requestAnimationFrame(tick);
     };
@@ -246,11 +499,6 @@ function App() {
             onMouseLeave={() => handleWandHover(false)}
             onClick={handleWandAreaClick}
           />
-        </div>
-        <div className="confidence-pill">
-          Confidence: {productivityConfidence === null
-            ? "--"
-            : productivityConfidence.toFixed(2)}
         </div>
       </main>
     </>

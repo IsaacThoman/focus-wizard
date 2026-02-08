@@ -13,7 +13,7 @@ const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
 
 const SYSTEM_PROMPT =
-  "You are a focus coach model. Return only a confidence score for whether the user is on task.";
+  "You are a focus coach model. Return only a confidence score for whether the user is on task. Provide a value close to or equal to 0 if they're doing something explicitly listed as off-task. Provide a value close to 0.5 if it's not something explicitly on-task or off-task. Provide a value close to or equal to 1 if they're explicitly on-task based on their own criteria. This is a gradient. Use your best judgement.";
 
 const USER_PROMPT =
   `Please provide a confidence score from 0-1 for how confident you are that this user is on task.\n\nUser's intended goal:\nstudying for calculus\n\nThings the user would like to avoid:\ninstagram\ntwitter AI bullshit`;

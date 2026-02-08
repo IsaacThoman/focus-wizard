@@ -6,3 +6,5 @@ export type {
   ManagedSprite,
   StaticSprite,
 } from "./SpriteManager";
+export { NumberRenderer } from "./NumberRenderer";
+export type { NumberColor } from "./NumberRenderer";
