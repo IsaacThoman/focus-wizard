@@ -38,34 +38,22 @@ let settingsWin: BrowserWindow | null = null;
 let spellOverlayWin: BrowserWindow | null = null;
 let bridge: BridgeManager | null = null;
 let isQuitting = false;
-let settingsMode: "setup" | "settings" = "settings";
 
-function loadSettings(mode: "setup" | "settings") {
-  settingsMode = mode;
+function loadSettings() {
   if (!settingsWin) return;
-
-  settingsWin.setTitle(
-    mode === "setup" ? "Setup - Focus Wizard" : "Settings - Focus Wizard",
-  );
+  settingsWin.setTitle("Settings - Focus Wizard");
 
   if (VITE_DEV_SERVER_URL) {
-    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html?mode=${mode}`);
+    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html`);
   } else {
-    settingsWin.loadFile(path.join(RENDERER_DIST, "settings.html"), {
-      query: { mode },
-    });
+    settingsWin.loadFile(path.join(RENDERER_DIST, "settings.html"));
   }
 }
 
-function createSettingsWindow(mode: "setup" | "settings" = "settings") {
+function createSettingsWindow() {
   if (settingsWin) {
     if (settingsWin.isMinimized()) {
       settingsWin.restore();
-    }
-
-    // If we're re-opening from setup, switch to the normal settings mode.
-    if (settingsMode !== mode) {
-      loadSettings(mode);
     }
 
     settingsWin.show();
@@ -79,9 +67,7 @@ function createSettingsWindow(mode: "setup" | "settings" = "settings") {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: mode === "setup"
-      ? "Setup - Focus Wizard"
-      : "Settings - Focus Wizard",
+    title: "Settings - Focus Wizard",
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
       // Keep webcam/duty-cycle timers stable even when the window is hidden.
@@ -100,7 +86,7 @@ function createSettingsWindow(mode: "setup" | "settings" = "settings") {
     settingsWin = null;
   });
 
-  loadSettings(mode);
+  loadSettings();
 }
 
 function createWindow() {
@@ -163,7 +149,9 @@ app.on("activate", () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createSettingsWindow("setup");
+    createWindow();
+    startScreenDiffMonitor();
+    createSettingsWindow();
   }
 });
 
@@ -365,7 +353,10 @@ app.on("before-quit", () => {
 });
 
 app.whenReady().then(() => {
-  createSettingsWindow("setup");
+  // Launch wizard + settings together on startup.
+  createWindow();
+  startScreenDiffMonitor();
+  createSettingsWindow();
 });
 
 ipcMain.handle("focus-wizard:capture-page-screenshot", async () => {

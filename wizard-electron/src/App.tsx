@@ -588,10 +588,11 @@ function App() {
               enabled: settings.pomodoroEnabled ?? prev.enabled,
               totalIterations: settings.pomodoroIterations ?? prev.totalIterations,
             };
-            // If enabling and wasn't enabled before, start fresh
+            // If enabling and wasn't enabled before, reset fresh but do NOT auto-start.
+            // Starting is an explicit action from the settings window.
             if (settings.pomodoroEnabled && !prev.enabled) {
               spellTriggeredForSessionRef.current = false;
-              newState.isRunning = true;
+              newState.isRunning = false;
               newState.isPaused = false;
               newState.timeRemaining = (settings.pomodoroWorkMinutes ?? 25) * 60;
               newState.mode = "work";

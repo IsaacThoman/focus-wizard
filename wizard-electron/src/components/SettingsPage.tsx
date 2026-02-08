@@ -77,10 +77,6 @@ interface WalletStatus {
 const BACKEND_URL = "http://localhost:8000";
 const ATTENTIVENESS_ENDPOINT = `${BACKEND_URL}/getAttentiveness`;
 
-interface SettingsPageProps {
-  mode?: "setup" | "settings";
-}
-
 interface PomodoroStatus {
   enabled: boolean;
   isRunning: boolean;
@@ -91,14 +87,14 @@ interface PomodoroStatus {
   totalIterations: number;
 }
 
-export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
-  const isSetup = mode === "setup";
+export function SettingsPage() {
   const [settings, setSettings] = useState<SettingsData>(() => {
     const savedSettings = localStorage.getItem("focus-wizard-settings");
     if (!savedSettings) return DEFAULT_SETTINGS;
     try {
       const parsed = JSON.parse(savedSettings);
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      // Pomodoro is always stopped on launch; don't persist the enabled/running flag.
+      return { ...DEFAULT_SETTINGS, ...parsed, pomodoroEnabled: false };
     } catch (e) {
       console.error("Failed to parse saved settings:", e);
       return DEFAULT_SETTINGS;
@@ -215,7 +211,8 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+        // Pomodoro is always stopped on launch; don't persist the enabled/running flag.
+        setSettings({ ...DEFAULT_SETTINGS, ...parsed, pomodoroEnabled: false });
       } catch (e) {
         console.error("Failed to parse saved settings:", e);
       }
@@ -454,19 +451,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const handleSave = () => {
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
     // Hide window instead of closing to keep monitoring active
-    if (window.wizardAPI?.hideWindow) {
-      window.wizardAPI.hideWindow();
-    } else {
-      window.close();
-    }
-  };
-
-  const handleStart = async () => {
-    localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
-    await window.focusWizard?.startSession();
-
-    // Hide window instead of closing so biometric monitoring can keep running
-    // after initial setup.
     if (window.wizardAPI?.hideWindow) {
       window.wizardAPI.hideWindow();
     } else {
@@ -719,7 +703,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
       })}
       <div className="settings-panel standalone">
         <div className="settings-header">
-          <h2>{isSetup ? "WIZARD SETUP" : "WIZARD SETTINGS"}</h2>
+          <h2>WIZARD SETTINGS</h2>
           {pomodoroStatus.enabled && (
             <div className="pomodoro-status-header">
               <div className={`pomodoro-indicator ${
@@ -1171,26 +1155,12 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
         </div>
 
         <div className="settings-footer">
-          {isSetup
-            ? (
-              <button
-                className="settings-button primary full-width"
-                onClick={handleStart}
-              >
-                Start
-              </button>
-            )
-            : (
-              <>
-
-                <button
-                  className="settings-button primary"
-                  onClick={handleSave}
-                >
-                  Save
-                </button>
-              </>
-            )}
+          <button
+            className="settings-button primary"
+            onClick={handleSave}
+          >
+            Save
+          </button>
         </div>
         <div className="settings-footer-quit">
           <button
