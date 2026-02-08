@@ -44,7 +44,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   devMode: false,
   positivePrompt: "",
   negativePrompt: "",
-  rewardPerCycle: 0.01,  // Default: 0.01 SOL per cycle
+  rewardPerCycle: 0.001,  // Default: 0.001 SOL per cycle
 };
 
 interface ClickSparkle {
@@ -985,7 +985,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                   <div className="wallet-unlock-info">
                     {(walletStatus.vaultBalanceSol || 0) > 0 && (
                       <span>
-                        Complete a cycle to unlock {(walletStatus.rewardPerCycle || 0.01).toFixed(4)} SOL 
+                        Complete a cycle to unlock {(walletStatus.rewardPerCycle || 0.001).toFixed(4)} SOL 
                         (${(walletStatus.rewardPerCycleUsd || 0).toFixed(2)} USD)
                       </span>
                     )}

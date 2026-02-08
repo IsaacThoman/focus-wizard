@@ -84,6 +84,19 @@ contextBridge.exposeInMainWorld("focusWizard", {
   quitApp: () => ipcRenderer.invoke("focus-wizard:quit-app") as Promise<void>,
   openWalletPage: () =>
     ipcRenderer.invoke("focus-wizard:open-wallet-page") as Promise<void>,
+  triggerSpell: () =>
+    ipcRenderer.invoke("focus-wizard:trigger-spell") as Promise<void>,
+  dismissSpell: () =>
+    ipcRenderer.invoke("focus-wizard:dismiss-spell") as Promise<void>,
+  closeSpellOverlay: () =>
+    ipcRenderer.invoke("focus-wizard:close-spell-overlay") as Promise<void>,
+  onDismissSpell: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("focus-wizard:dismiss-spell", listener);
+    return () => {
+      ipcRenderer.removeListener("focus-wizard:dismiss-spell", listener);
+    };
+  },
   onTriggerScreenshot: (callback: () => void) => {
     const listener = () => callback();
     ipcRenderer.on("focus-wizard:trigger-screenshot", listener);

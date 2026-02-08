@@ -35,6 +35,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null = null;
 let settingsWin: BrowserWindow | null = null;
+let spellOverlayWin: BrowserWindow | null = null;
 let bridge: BridgeManager | null = null;
 
 function createSettingsWindow(mode: "setup" | "settings" = "settings") {
@@ -273,6 +274,60 @@ function startScreenDiffMonitor() {
     }
   }, 1_000);
 }
+// ── Spell overlay (fullscreen transparent fireworks) ──
+
+function createSpellOverlayWindow() {
+  if (spellOverlayWin && !spellOverlayWin.isDestroyed()) {
+    // Already showing, ignore
+    return;
+  }
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.size;
+
+  spellOverlayWin = new BrowserWindow({
+    width,
+    height,
+    x: 0,
+    y: 0,
+    alwaysOnTop: true,
+    transparent: true,
+    frame: false,
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.mjs"),
+    },
+  });
+
+  // Allow clicks to pass through so the user isn't blocked
+  spellOverlayWin.setIgnoreMouseEvents(true);
+
+  spellOverlayWin.on("closed", () => {
+    spellOverlayWin = null;
+  });
+
+  if (VITE_DEV_SERVER_URL) {
+    spellOverlayWin.loadURL(`${VITE_DEV_SERVER_URL}spell-overlay.html`);
+  } else {
+    spellOverlayWin.loadFile(
+      path.join(RENDERER_DIST, "spell-overlay.html"),
+    );
+  }
+}
+
+/** Tell the spell overlay to start its fade-out animation (it will close itself when done). */
+function dismissSpellOverlay() {
+  if (spellOverlayWin && !spellOverlayWin.isDestroyed()) {
+    spellOverlayWin.webContents.send("focus-wizard:dismiss-spell");
+  }
+}
+
 app.on("before-quit", () => {
   bridge?.stop();
 });
@@ -443,4 +498,19 @@ ipcMain.handle("focus-wizard:quit-app", () => {
 
 ipcMain.handle("focus-wizard:open-wallet-page", () => {
   shell.openExternal("http://localhost:8000/wallet");
+});
+
+ipcMain.handle("focus-wizard:trigger-spell", () => {
+  createSpellOverlayWindow();
+});
+
+ipcMain.handle("focus-wizard:dismiss-spell", () => {
+  dismissSpellOverlay();
+});
+
+ipcMain.handle("focus-wizard:close-spell-overlay", () => {
+  if (spellOverlayWin && !spellOverlayWin.isDestroyed()) {
+    spellOverlayWin.close();
+    spellOverlayWin = null;
+  }
 });

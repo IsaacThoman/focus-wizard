@@ -16,6 +16,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, "index.html"),
         settings: path.resolve(__dirname, "settings.html"),
+        "spell-overlay": path.resolve(__dirname, "spell-overlay.html"),
       },
     },
   },
