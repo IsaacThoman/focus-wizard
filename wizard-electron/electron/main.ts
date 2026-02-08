@@ -364,7 +364,7 @@ ipcMain.handle("focus-wizard:hide-window", () => {
   }
 });
 
-// ── Bridge IPC Handlers ──────────────────────────────────
+// ── Bridge IPC Handlers ──────────────────────────────────-
 
 async function startBridge(): Promise<void> {
   const apiKey = process.env.SMARTSPECTRA_API_KEY || "";
