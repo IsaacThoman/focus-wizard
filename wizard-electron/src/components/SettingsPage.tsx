@@ -28,26 +28,45 @@ interface FocusData {
 }
 
 export interface SettingsData {
-  pomodoroEnabled: boolean;
-  pomodoroWorkMinutes: number;
-  pomodoroBreakMinutes: number;
-  pomodoroIterations: number;
+  pomodoroWorkMinutes: number | "";
+  pomodoroBreakMinutes: number | "";
+  pomodoroIterations: number | "";
   devMode: boolean;
   positivePrompt: string;
   negativePrompt: string;
-  rewardPerCycle: number;  // SOL earned per completed pomodoro cycle
+  rewardPerCycle: number | "";  // SOL earned per completed pomodoro cycle
 }
 
+const DEFAULT_POMODORO_WORK_MINUTES = 25;
+const DEFAULT_POMODORO_BREAK_MINUTES = 5;
+const DEFAULT_POMODORO_ITERATIONS = 4;
+const DEFAULT_REWARD_PER_CYCLE = 0.001;
+
 const DEFAULT_SETTINGS: SettingsData = {
-  pomodoroEnabled: false,
-  pomodoroWorkMinutes: 25,
-  pomodoroBreakMinutes: 5,
-  pomodoroIterations: 4,
+  pomodoroWorkMinutes: DEFAULT_POMODORO_WORK_MINUTES,
+  pomodoroBreakMinutes: DEFAULT_POMODORO_BREAK_MINUTES,
+  pomodoroIterations: DEFAULT_POMODORO_ITERATIONS,
   devMode: false,
   positivePrompt: "",
   negativePrompt: "",
-  rewardPerCycle: 0.001,  // Default: 0.001 SOL per cycle
+  rewardPerCycle: DEFAULT_REWARD_PER_CYCLE,
 };
+
+function clampNumber(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+function coerceInt(val: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof val === "number" ? val : typeof val === "string" ? Number(val) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return clampNumber(Math.round(n), min, max);
+}
+
+function coerceNumber(val: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof val === "number" ? val : typeof val === "string" ? Number(val) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return clampNumber(n, min, max);
+}
 
 interface ClickSparkle {
   id: number;
@@ -92,9 +111,14 @@ export function SettingsPage() {
     const savedSettings = localStorage.getItem("focus-wizard-settings");
     if (!savedSettings) return DEFAULT_SETTINGS;
     try {
-      const parsed = JSON.parse(savedSettings);
-      // Pomodoro is always stopped on launch; don't persist the enabled/running flag.
-      return { ...DEFAULT_SETTINGS, ...parsed, pomodoroEnabled: false };
+      const parsed: unknown = JSON.parse(savedSettings);
+      const rest: Record<string, unknown> =
+        parsed && typeof parsed === "object" ? { ...(parsed as Record<string, unknown>) } : {};
+
+      // Ignore any legacy pomodoroEnabled flag; runtime state lives in pomodoro status.
+      delete rest.pomodoroEnabled;
+
+      return { ...DEFAULT_SETTINGS, ...(rest as Partial<SettingsData>) };
     } catch (e) {
       console.error("Failed to parse saved settings:", e);
       return DEFAULT_SETTINGS;
@@ -173,14 +197,23 @@ export function SettingsPage() {
   // Only save after initial load to avoid overwriting persisted settings with defaults
   useEffect(() => {
     if (!settingsLoaded) return;
-    localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
+
+    const sanitized: SettingsData = {
+      ...settings,
+      pomodoroWorkMinutes: coerceInt(settings.pomodoroWorkMinutes, DEFAULT_POMODORO_WORK_MINUTES, 1, 240),
+      pomodoroBreakMinutes: coerceInt(settings.pomodoroBreakMinutes, DEFAULT_POMODORO_BREAK_MINUTES, 1, 60),
+      pomodoroIterations: coerceInt(settings.pomodoroIterations, DEFAULT_POMODORO_ITERATIONS, 1, 100),
+      rewardPerCycle: coerceNumber(settings.rewardPerCycle, DEFAULT_REWARD_PER_CYCLE, 0, 1),
+    };
+
+    localStorage.setItem("focus-wizard-settings", JSON.stringify(sanitized));
     
     // Sync reward per cycle with backend
-    if (settings.rewardPerCycle >= 0) {
+    if (sanitized.rewardPerCycle !== "" && sanitized.rewardPerCycle >= 0) {
       fetch(`${BACKEND_URL}/wallet/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rewardPerCycle: settings.rewardPerCycle }),
+        body: JSON.stringify({ rewardPerCycle: sanitized.rewardPerCycle }),
       }).catch((e) => console.error("Failed to sync reward config:", e));
     }
   }, [settings, settingsLoaded]);
@@ -210,9 +243,14 @@ export function SettingsPage() {
     const savedSettings = localStorage.getItem("focus-wizard-settings");
     if (savedSettings) {
       try {
-        const parsed = JSON.parse(savedSettings);
-        // Pomodoro is always stopped on launch; don't persist the enabled/running flag.
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed, pomodoroEnabled: false });
+        const parsed: unknown = JSON.parse(savedSettings);
+        const rest: Record<string, unknown> =
+          parsed && typeof parsed === "object" ? { ...(parsed as Record<string, unknown>) } : {};
+
+        // Ignore any legacy pomodoroEnabled flag; runtime state lives in pomodoro status.
+        delete rest.pomodoroEnabled;
+
+        setSettings({ ...DEFAULT_SETTINGS, ...(rest as Partial<SettingsData>) });
       } catch (e) {
         console.error("Failed to parse saved settings:", e);
       }
@@ -357,15 +395,15 @@ export function SettingsPage() {
     });
 
     const unsubs = [
-      api.onFocus((data: FocusData) => {
+      api.onFocus((data: unknown) => {
         console.log("[SettingsPage] Focus data received:", data);
-        setFocusData(data);
+        setFocusData(data as FocusData);
       }),
-      api.onMetrics((data: Record<string, unknown>) => {
+      api.onMetrics((data: unknown) => {
         console.log("[SettingsPage] Metrics data received:", data);
         // Merge metrics into focus data if available
-        if (data) {
-          setFocusData((prev) => ({ ...prev, ...data } as FocusData));
+        if (data && typeof data === "object") {
+          setFocusData((prev) => ({ ...prev, ...(data as Record<string, unknown>) } as FocusData));
         }
       }),
       api.onStatus((s: string) => setBridgeStatus(s)),
@@ -404,7 +442,7 @@ export function SettingsPage() {
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, []);
+  }, [authError]);
 
   // Start/stop bridge based on dev mode and webcam status
   useEffect(() => {
@@ -448,8 +486,16 @@ export function SettingsPage() {
     }
   }, [settings.devMode, webcamActive, bridgeReady, authError]);
 
-  const handleSave = () => {
-    localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
+  const handleCloseMenu = () => {
+    // Persist immediately in case the user closes right after a change.
+    const sanitized: SettingsData = {
+      ...settings,
+      pomodoroWorkMinutes: coerceInt(settings.pomodoroWorkMinutes, DEFAULT_POMODORO_WORK_MINUTES, 1, 240),
+      pomodoroBreakMinutes: coerceInt(settings.pomodoroBreakMinutes, DEFAULT_POMODORO_BREAK_MINUTES, 1, 60),
+      pomodoroIterations: coerceInt(settings.pomodoroIterations, DEFAULT_POMODORO_ITERATIONS, 1, 100),
+      rewardPerCycle: coerceNumber(settings.rewardPerCycle, DEFAULT_REWARD_PER_CYCLE, 0, 1),
+    };
+    localStorage.setItem("focus-wizard-settings", JSON.stringify(sanitized));
     // Hide window instead of closing to keep monitoring active
     if (window.wizardAPI?.hideWindow) {
       window.wizardAPI.hideWindow();
@@ -467,7 +513,7 @@ export function SettingsPage() {
   const handleRewardPerCycleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (value === "") {
-      setSettings({ ...settings, rewardPerCycle: "" as any });
+      setSettings({ ...settings, rewardPerCycle: "" });
     } else {
       const num = parseFloat(value);
       if (!isNaN(num) && num >= 0 && num <= 1) {
@@ -477,18 +523,17 @@ export function SettingsPage() {
   };
 
   const handleRewardPerCycleBlur = async () => {
-    if (Number(settings.rewardPerCycle) < 0) {
-      setSettings({
-        ...settings,
-        rewardPerCycle: DEFAULT_SETTINGS.rewardPerCycle,
-      });
+    const reward = coerceNumber(settings.rewardPerCycle, DEFAULT_REWARD_PER_CYCLE, 0, 1);
+
+    if (settings.rewardPerCycle === "") {
+      setSettings({ ...settings, rewardPerCycle: reward });
     }
     // Sync with backend
     try {
       await fetch(`${BACKEND_URL}/wallet/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rewardPerCycle: settings.rewardPerCycle }),
+        body: JSON.stringify({ rewardPerCycle: reward }),
       });
     } catch (e) {
       console.error("Failed to update reward config:", e);
@@ -499,7 +544,7 @@ export function SettingsPage() {
   const handleWorkMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (value === "") {
-      setSettings({ ...settings, pomodoroWorkMinutes: "" as any });
+      setSettings({ ...settings, pomodoroWorkMinutes: "" });
     } else {
       const num = parseInt(value, 10);
       if (!isNaN(num) && num > 0 && num <= 240) {
@@ -511,7 +556,7 @@ export function SettingsPage() {
   const handleBreakMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (value === "") {
-      setSettings({ ...settings, pomodoroBreakMinutes: "" as any });
+      setSettings({ ...settings, pomodoroBreakMinutes: "" });
     } else {
       const num = parseInt(value, 10);
       if (!isNaN(num) && num > 0 && num <= 60) {
@@ -524,7 +569,7 @@ export function SettingsPage() {
     if (Number(settings.pomodoroWorkMinutes) <= 0) {
       setSettings({
         ...settings,
-        pomodoroWorkMinutes: DEFAULT_SETTINGS.pomodoroWorkMinutes,
+        pomodoroWorkMinutes: DEFAULT_POMODORO_WORK_MINUTES,
       });
     }
   };
@@ -533,7 +578,7 @@ export function SettingsPage() {
     if (Number(settings.pomodoroBreakMinutes) <= 0) {
       setSettings({
         ...settings,
-        pomodoroBreakMinutes: DEFAULT_SETTINGS.pomodoroBreakMinutes,
+        pomodoroBreakMinutes: DEFAULT_POMODORO_BREAK_MINUTES,
       });
     }
   };
@@ -541,7 +586,7 @@ export function SettingsPage() {
   const handleIterationsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (value === "") {
-      setSettings({ ...settings, pomodoroIterations: "" as any });
+      setSettings({ ...settings, pomodoroIterations: "" });
     } else {
       const num = parseInt(value, 10);
       if (!isNaN(num) && num > 0 && num <= 100) {
@@ -554,26 +599,24 @@ export function SettingsPage() {
     if (Number(settings.pomodoroIterations) <= 0) {
       setSettings({
         ...settings,
-        pomodoroIterations: DEFAULT_SETTINGS.pomodoroIterations,
+        pomodoroIterations: DEFAULT_POMODORO_ITERATIONS,
       });
     }
   };
 
   const handlePomodoroStart = () => {
-    const newSettings = { ...settings, pomodoroEnabled: true };
-    setSettings(newSettings);
+    const workMinutes = coerceInt(settings.pomodoroWorkMinutes, DEFAULT_POMODORO_WORK_MINUTES, 1, 240);
     const newStatus: PomodoroStatus = {
       enabled: true,
       isRunning: true,
       isPaused: false,
-      timeRemaining: settings.pomodoroWorkMinutes * 60,
+      timeRemaining: workMinutes * 60,
       mode: "work" as const,
       iteration: 1,
-      totalIterations: settings.pomodoroIterations,
+      totalIterations: coerceInt(settings.pomodoroIterations, DEFAULT_POMODORO_ITERATIONS, 1, 100),
     };
     setPomodoroStatus(newStatus);
     localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
-    localStorage.setItem("focus-wizard-settings", JSON.stringify(newSettings));
   };
 
   const handlePomodoroPause = () => {
@@ -595,22 +638,21 @@ export function SettingsPage() {
   };
 
   const handlePomodoroRestart = () => {
+    const workMinutes = coerceInt(settings.pomodoroWorkMinutes, DEFAULT_POMODORO_WORK_MINUTES, 1, 240);
     const newStatus: PomodoroStatus = {
       enabled: true,
       isRunning: true,
       isPaused: false,
-      timeRemaining: settings.pomodoroWorkMinutes * 60,
+      timeRemaining: workMinutes * 60,
       mode: "work" as const,
       iteration: 1,
-      totalIterations: settings.pomodoroIterations,
+      totalIterations: coerceInt(settings.pomodoroIterations, DEFAULT_POMODORO_ITERATIONS, 1, 100),
     };
     setPomodoroStatus(newStatus);
     localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
   };
 
   const handlePomodoroStop = () => {
-    const newSettings = { ...settings, pomodoroEnabled: false };
-    setSettings(newSettings);
     const newStatus: PomodoroStatus = {
       enabled: false,
       isRunning: false,
@@ -618,11 +660,10 @@ export function SettingsPage() {
       timeRemaining: 0,
       mode: "work" as const,
       iteration: 1,
-      totalIterations: settings.pomodoroIterations,
+      totalIterations: coerceInt(settings.pomodoroIterations, DEFAULT_POMODORO_ITERATIONS, 1, 100),
     };
     setPomodoroStatus(newStatus);
     localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
-    localStorage.setItem("focus-wizard-settings", JSON.stringify(newSettings));
   };
 
   // Determine the pomodoro control state
@@ -1127,7 +1168,7 @@ export function SettingsPage() {
                 />
                 <span className="wallet-config-unit">SOL</span>
                 <span className="wallet-config-usd">
-                  ≈ ${(settings.rewardPerCycle * (walletStatus?.solToUsdRate || 87.40)).toFixed(2)} USD
+                  ≈ ${(Number(settings.rewardPerCycle || 0) * (walletStatus?.solToUsdRate || 87.40)).toFixed(2)} USD
                 </span>
               </div>
               <p className="wallet-config-hint">
@@ -1156,10 +1197,10 @@ export function SettingsPage() {
 
         <div className="settings-footer">
           <button
-            className="settings-button primary"
-            onClick={handleSave}
+            className="settings-button neutral"
+            onClick={handleCloseMenu}
           >
-            Save
+            Close Menu
           </button>
         </div>
         <div className="settings-footer-quit">
