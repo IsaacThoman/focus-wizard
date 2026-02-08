@@ -3,6 +3,8 @@ import { z } from "zod";
 export const getProductivityConfidenceRequestSchema = z.object({
   screenshotBase64: z.string().min(1),
   capturedAt: z.string().datetime().optional(),
+  positivePrompt: z.string().optional(),
+  negativePrompt: z.string().optional(),
 });
 
 export const getProductivityConfidenceResponseSchema = z.object({

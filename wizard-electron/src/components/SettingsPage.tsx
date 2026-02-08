@@ -30,6 +30,8 @@ export interface SettingsData {
   pomodoroIterations: number;
   employerCode: string;
   devMode: boolean;
+  positivePrompt: string;
+  negativePrompt: string;
 }
 
 const DEFAULT_SETTINGS: SettingsData = {
@@ -39,6 +41,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   pomodoroIterations: 4,
   employerCode: "",
   devMode: false,
+  positivePrompt: "",
+  negativePrompt: "",
 };
 
 interface ClickSparkle {
@@ -545,6 +549,40 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                 value={settings.pomodoroIterations}
                 onChange={handleIterationsChange}
                 onBlur={handleIterationsBlur}
+              />
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <h3>Focus Prompts</h3>
+            <div className="settings-field">
+              <label htmlFor="positive-prompt">
+                What should you be doing? (On-task)
+              </label>
+              <textarea
+                id="positive-prompt"
+                placeholder="e.g. studying for calculus, writing code, reading documentation"
+                value={settings.positivePrompt}
+                onChange={(e) =>
+                  setSettings({ ...settings, positivePrompt: e.target.value })
+                }
+                rows={3}
+                style={{ resize: "vertical" }}
+              />
+            </div>
+            <div className="settings-field">
+              <label htmlFor="negative-prompt">
+                What should you avoid? (Off-task)
+              </label>
+              <textarea
+                id="negative-prompt"
+                placeholder="e.g. Instagram, Twitter, YouTube, Reddit"
+                value={settings.negativePrompt}
+                onChange={(e) =>
+                  setSettings({ ...settings, negativePrompt: e.target.value })
+                }
+                rows={3}
+                style={{ resize: "vertical" }}
               />
             </div>
           </section>

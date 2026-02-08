@@ -436,6 +436,22 @@ function App() {
           capturedAt: new Date().toISOString(),
         };
 
+        // Read positive/negative prompts from settings and attach to payload
+        try {
+          const savedSettings = localStorage.getItem("focus-wizard-settings");
+          if (savedSettings) {
+            const parsed = JSON.parse(savedSettings);
+            if (parsed.positivePrompt) {
+              payload.positivePrompt = parsed.positivePrompt;
+            }
+            if (parsed.negativePrompt) {
+              payload.negativePrompt = parsed.negativePrompt;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to read prompts from settings:", e);
+        }
+
         const response = await fetch(PRODUCTIVITY_ENDPOINT, {
           method: "POST",
           headers: {
