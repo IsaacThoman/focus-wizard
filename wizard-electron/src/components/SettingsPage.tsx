@@ -133,9 +133,10 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const { stream, isActive: webcamActive, error: webcamError } = useWebcam({
     width: 640,
     height: 480,
-    fps: 5, // 5 fps - balance between API usage and face tracking quality
+    fps: 0.5, // 1 frame every 2 seconds
     quality: 0.80,
     enabled: settings.devMode, // Start webcam as soon as dev mode enabled
+    dutyCycle: { onMs: 0, offMs: 0 },
   });
 
   // Connect stream to preview video element

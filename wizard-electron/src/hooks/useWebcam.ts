@@ -22,7 +22,7 @@ interface UseWebcamOptions {
 
   /**
    * Duty-cycle the *sending* of frames to the bridge to reduce usage.
-   * Default: 3s on, 5s off.
+   * Set to `{ onMs: 0, offMs: 0 }` to disable duty-cycling (always on).
    */
   dutyCycle?: {
     onMs: number;
@@ -52,7 +52,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
     fps = 15,
     quality = 0.80,
     enabled = false,
-    dutyCycle = { onMs: 3_000, offMs: 5_000 },
+    dutyCycle = { onMs: 0, offMs: 0 },
   } = options;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -91,6 +91,12 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
     if (dutyTimerRef.current) {
       clearTimeout(dutyTimerRef.current);
       dutyTimerRef.current = null;
+    }
+
+    // Duty-cycling disabled => always ON
+    if (dutyCycle.onMs <= 0 || dutyCycle.offMs <= 0) {
+      dutyOnRef.current = true;
+      return;
     }
 
     dutyOnRef.current = true;
