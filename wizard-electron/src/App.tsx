@@ -16,6 +16,8 @@ const CANVAS_HEIGHT = 120;
 const HEAD_START_MS = 15_000;
 const ANGRY_VOICE_COOLDOWN_MS = 8_000;
 const MODEL_VOICE_LINE_STALE_MS = 30_000;
+const HAPPY_CONFIDENCE_THRESHOLD = 0.8;
+const OFF_TASK_CONFIDENCE_THRESHOLD = 0.5;
 
 export type WizardEmotion = "happy" | "neutral" | "mad";
 
@@ -236,7 +238,7 @@ function App() {
     dismissSpellCast();
   }, [dismissSpellCast]);
 
-  const applyEmotionFromSignals = useCallback(() => {
+  const applyEmotionFromSignals = useCallback((): WizardEmotion => {
     const now = Date.now();
     const conf = productivityConfidenceRef.current;
     const attn = attentivenessRef.current;
@@ -245,20 +247,23 @@ function App() {
     // During this window, don't let any signals force negative emotion.
     if (now - sessionStartAtRef.current < HEAD_START_MS) {
       halfAttentiveSinceRef.current = null;
-      setEmotion("happy");
-      return;
+      const nextEmotion: WizardEmotion = "happy";
+      setEmotion(nextEmotion);
+      return nextEmotion;
     }
 
     // Away override: if the user is gone, always be mad.
     if (awayOverrideRef.current) {
-      setEmotion("mad");
-      return;
+      const nextEmotion: WizardEmotion = "mad";
+      setEmotion(nextEmotion);
+      return nextEmotion;
     }
 
     // Attentiveness override rules
     if (attn === 0) {
-      setEmotion("mad");
-      return;
+      const nextEmotion: WizardEmotion = "mad";
+      setEmotion(nextEmotion);
+      return nextEmotion;
     }
 
     if (attn === 0.5) {
@@ -266,8 +271,9 @@ function App() {
         halfAttentiveSinceRef.current = now;
       }
       if (now - halfAttentiveSinceRef.current >= 4000) {
-        setEmotion("neutral");
-        return;
+        const nextEmotion: WizardEmotion = "neutral";
+        setEmotion(nextEmotion);
+        return nextEmotion;
       }
     } else {
       halfAttentiveSinceRef.current = null;
@@ -277,20 +283,30 @@ function App() {
     const confidenceIsFresh = conf !== null && (now - lastConfidenceAtRef.current) < 15000;
 
     if (confidenceIsFresh) {
-      if (conf >= 0.8) setEmotion("happy");
-      else if (conf >= 0.2) setEmotion("neutral");
-      else setEmotion("mad");
-      return;
+      const nextEmotion: WizardEmotion = conf >= HAPPY_CONFIDENCE_THRESHOLD
+        ? "happy"
+        : conf >= OFF_TASK_CONFIDENCE_THRESHOLD
+        ? "neutral"
+        : "mad";
+      setEmotion(nextEmotion);
+      return nextEmotion;
     }
 
     if (attn === 1) {
-      setEmotion("happy");
+      const nextEmotion: WizardEmotion = "happy";
+      setEmotion(nextEmotion);
+      return nextEmotion;
     } else if (attn === 0.5) {
       // If we're here, it hasn't been 4s yet—don't force neutral early.
-      setEmotion(emotionRef.current);
+      const nextEmotion = emotionRef.current;
+      setEmotion(nextEmotion);
+      return nextEmotion;
     } else if (attn === 0) {
-      setEmotion("mad");
+      const nextEmotion: WizardEmotion = "mad";
+      setEmotion(nextEmotion);
+      return nextEmotion;
     }
+    return emotionRef.current;
   }, []);
 
   const normalizeSpeechText = useCallback((text: string): string => {
@@ -316,7 +332,7 @@ function App() {
 
       if (attn === 0) return "wandering eyes";
       if (attn === 0.5) return "daydreaming";
-      if (conf !== null && conf < 0.2) return "that shiny side-quest";
+      if (conf !== null && conf < OFF_TASK_CONFIDENCE_THRESHOLD) return "that shiny side-quest";
       return "distractions";
     })();
 
@@ -1062,15 +1078,15 @@ function App() {
           const now = Date.now();
           productivityConfidenceRef.current = confidence;
           lastConfidenceAtRef.current = now;
-          latestModelVoiceLineRef.current = modelVoiceLine;
+          latestModelVoiceLineRef.current = modelVoiceLine ?? "";
           lastModelVoiceLineAtRef.current = now;
 
-          applyEmotionFromSignals();
+          const nextEmotion = applyEmotionFromSignals();
 
           // Speak model-generated screenshot callouts while off-task, even when
           // already in mad state, with a cooldown to avoid spam.
           if (
-            confidence < 0.5 &&
+            nextEmotion === "mad" &&
             now - lastAngrySpokenAtRef.current >= ANGRY_VOICE_COOLDOWN_MS
           ) {
             lastAngrySpokenAtRef.current = now;
