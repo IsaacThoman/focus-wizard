@@ -16,19 +16,47 @@ const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
 
 const SYSTEM_PROMPT =
-  "You are a focus coach model. Return only a confidence score for whether the user is on task. Provide a value close to or equal to 0 if they're doing something explicitly listed as off-task. Provide a value close to 0.5 if it's not something explicitly on-task or off-task. Provide a value close to or equal to 1 if they're explicitly on-task based on their own criteria. This is a gradient. Use your best judgement.";
+  "You are a wizard-themed focus coach. Return strict JSON only with two fields: confidence (0..1) and voiceLine (1..280 chars). Use the screenshot plus the user's goals/avoid list to judge on-task confidence. If the screenshot is off-task, voiceLine must call out the specific off-task app/site/activity visible (for example 'instagram.com feed') and command a return to task in a wizardly tone. If on-task, voiceLine should briefly encourage continued focus in wizard style. Keep voiceLine concise, punchy, and safe for work.";
 
 const DEFAULT_POSITIVE_PROMPT = "studying for calculus";
-const DEFAULT_NEGATIVE_PROMPT = "instagram\ntwitter AI bullshit";
+const DEFAULT_NEGATIVE_PROMPT = "instagram\ntwitter";
+const WIZARD_SAYING_EXAMPLES = [
+  "On distractions again, are we? Back to the task now.",
+  "You must return to your duties.",
+  "Fooooocus, apprentice. One minute of effort now.",
+  "No side quests. One task. One breath. Go.",
+  "Banish the distraction and resume your work.",
+];
 
 function buildUserPrompt(positivePrompt?: string, negativePrompt?: string): string {
   const goal = positivePrompt?.trim() || DEFAULT_POSITIVE_PROMPT;
   const avoid = negativePrompt?.trim() || DEFAULT_NEGATIVE_PROMPT;
-  return `Please provide a confidence score from 0-1 for how confident you are that this user is on task.\n\nUser's intended goal:\n${goal}\n\nThings the user would like to avoid:\n${avoid}`;
+  const sayingsBlock = WIZARD_SAYING_EXAMPLES.map((line) => `- ${line}`).join("\n");
+  return `Analyze this screenshot and return JSON with:
+- confidence: number from 0 to 1 for how on-task the user is
+- voiceLine: one short wizard line to speak aloud
+
+Rules for voiceLine:
+- If off-task, explicitly name what is visible and off-task (site/app/activity)."
+- If not clearly off-task, avoid hallucinating exact websites.
+- Match the style of these sayings:
+${sayingsBlock}
+
+User's intended goal:
+${goal}
+
+Things the user wants to avoid:
+${avoid}`;
 }
 
 const apiResponseSchema = z.object({
   confidence: z.number().min(0).max(1),
+  productivityVoiceLine: z.string().nullable().optional(),
+});
+type ModelFocusResult = z.infer<typeof apiResponseSchema>;
+const partialApiResponseSchema = z.object({
+  confidence: z.number().min(0).max(1).optional(),
+  productivityVoiceLine: z.string().optional(),
 });
 
 function normalizeImageDataUrl(input: string): string {
@@ -39,13 +67,70 @@ function normalizeImageDataUrl(input: string): string {
   return `data:image/png;base64,${input}`;
 }
 
+function sanitizeVoiceLine(text: string | null | undefined): string | null {
+  if (!text) return null;
+  return text.replace(/\s+/g, " ").trim().slice(0, 280);
+}
+
+function buildFallbackVoiceLine(confidence: number): string {
+  if (confidence < 0.5) {
+    return "Back to your task, apprentice. Banish this distraction now.";
+  }
+  return "Steady focus, apprentice. Keep casting progress.";
+}
+
+function extractMessageText(message: unknown): string | null {
+  if (!message || typeof message !== "object") return null;
+  const asRecord = message as Record<string, unknown>;
+  const content = asRecord.content;
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const p = part as Record<string, unknown>;
+      if (typeof p.text === "string") {
+        parts.push(p.text);
+        continue;
+      }
+      if (
+        p.text && typeof p.text === "object" &&
+        typeof (p.text as Record<string, unknown>).value === "string"
+      ) {
+        parts.push((p.text as Record<string, unknown>).value as string);
+      }
+    }
+    const combined = parts.join("\n").trim();
+    return combined || null;
+  }
+
+  return null;
+}
+
+function parseModelJsonPayload(rawText: string): unknown {
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    const match = rawText.match(/\{[\s\S]*\}/);
+    if (!match) {
+      throw new Error("Model content was not valid JSON");
+    }
+    return JSON.parse(match[0]);
+  }
+}
+
 async function getConfidenceFromModel(
   screenshotBase64: string,
   positivePrompt?: string,
   negativePrompt?: string,
-): Promise<number> {
+): Promise<ModelFocusResult> {
   const startedAt = performance.now();
   let confidenceForLog: number | null = null;
+  let voiceLineForLog: string | null = null;
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not set");
   }
@@ -85,12 +170,17 @@ async function getConfidenceFromModel(
             schema: {
               type: "object",
               additionalProperties: false,
-              required: ["confidence"],
+              required: ["confidence", "voiceLine"],
               properties: {
                 confidence: {
                   type: "number",
                   minimum: 0,
                   maximum: 1,
+                },
+                voiceLine: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 280,
                 },
               },
             },
@@ -105,21 +195,53 @@ async function getConfidenceFromModel(
     }
 
     const json = await response.json();
-    const content = json?.choices?.[0]?.message?.content;
-
-    if (typeof content !== "string") {
-      throw new Error("Model response was missing a text content payload");
+    const message = json?.choices?.[0]?.message;
+    const refusal = typeof message?.refusal === "string" ? message.refusal : "";
+    if (refusal) {
+      const confidence = 0.5;
+      const productivityVoiceLine = "The vision spell was blocked. Return to your quest.";
+      confidenceForLog = confidence;
+      voiceLineForLog = productivityVoiceLine;
+      return { confidence, productivityVoiceLine };
     }
 
-    const parsedJson = JSON.parse(content);
-    const parsed = apiResponseSchema.safeParse(parsedJson);
-
-    if (!parsed.success) {
-      throw new Error("Model response schema validation failed");
+    const content = extractMessageText(message);
+    if (!content) {
+      throw new Error(
+        `Model response was missing text content (finish_reason: ${
+          json?.choices?.[0]?.finish_reason ?? "unknown"
+        })`,
+      );
     }
 
-    confidenceForLog = parsed.data.confidence;
-    return parsed.data.confidence;
+    const parsedJson = parseModelJsonPayload(content);
+    const strictParsed = apiResponseSchema.safeParse(parsedJson);
+    if (strictParsed.success) {
+      const productivityVoiceLine = sanitizeVoiceLine(strictParsed.data.productivityVoiceLine);
+
+      confidenceForLog = strictParsed.data.confidence;
+      voiceLineForLog = productivityVoiceLine || null;
+      return {
+        confidence: strictParsed.data.confidence,
+        productivityVoiceLine,
+      };
+    }
+
+    // Fallback parser: tolerate older/partial outputs and fill missing fields.
+    const partialParsed = partialApiResponseSchema.safeParse(parsedJson);
+    if (!partialParsed.success || partialParsed.data.confidence === undefined) {
+      throw new Error(
+        `Model response schema validation failed. Raw: ${content.slice(0, 400)}`,
+      );
+    }
+
+    const confidence = partialParsed.data.confidence;
+    const productivityVoiceLine = sanitizeVoiceLine(
+      partialParsed.data.productivityVoiceLine || buildFallbackVoiceLine(confidence),
+    );
+    confidenceForLog = confidence;
+    voiceLineForLog = productivityVoiceLine;
+    return { confidence, productivityVoiceLine };
   } finally {
     const elapsedMs = performance.now() - startedAt;
     const confidenceText = confidenceForLog === null
@@ -128,7 +250,9 @@ async function getConfidenceFromModel(
     console.log(
       `OpenAI request end-to-end took ${
         elapsedMs.toFixed(0)
-      }ms, confidence: ${confidenceText}`,
+      }ms, confidence: ${confidenceText}, voiceLine: ${
+        voiceLineForLog || "n/a"
+      }`,
     );
   }
 }
@@ -149,19 +273,21 @@ router.post("/getProductivityConfidence", async (ctx: any) => {
       return;
     }
 
-    const productivityConfidence = await getConfidenceFromModel(
+    const modelResult = await getConfidenceFromModel(
       parsed.data.screenshotBase64,
       parsed.data.positivePrompt,
       parsed.data.negativePrompt,
     );
 
     const responsePayload = getProductivityConfidenceResponseSchema.parse({
-      productivityConfidence,
+      productivityConfidence: modelResult.confidence,
+      productivityVoiceLine: modelResult.productivityVoiceLine,
     });
 
     ctx.response.status = Status.OK;
     ctx.response.body = responsePayload;
   } catch (error) {
+    console.error("Productivity confidence request failed:", error);
     ctx.response.status = Status.InternalServerError;
     ctx.response.body = {
       error: error instanceof Error ? error.message : "Internal server error",

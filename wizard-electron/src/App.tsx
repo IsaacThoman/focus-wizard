@@ -14,6 +14,8 @@ const ATTENTIVENESS_ENDPOINT = "http://localhost:8000/getAttentiveness";
 const CANVAS_WIDTH = 80;
 const CANVAS_HEIGHT = 120;
 const HEAD_START_MS = 15_000;
+const ANGRY_VOICE_COOLDOWN_MS = 8_000;
+const MODEL_VOICE_LINE_STALE_MS = 30_000;
 
 export type WizardEmotion = "happy" | "neutral" | "mad";
 
@@ -77,6 +79,8 @@ function App() {
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
   const emotionRef = useRef<WizardEmotion>("happy");
   const lastAngrySpokenAtRef = useRef<number>(0);
+  const latestModelVoiceLineRef = useRef<string>("");
+  const lastModelVoiceLineAtRef = useRef<number>(0);
   const angryAudioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenshotInFlightRef = useRef(false);
@@ -289,7 +293,20 @@ function App() {
     }
   }, []);
 
-  const buildAngrySpeechText = useCallback((): string => {
+  const normalizeSpeechText = useCallback((text: string): string => {
+    return text.replace(/\s+/g, " ").trim().slice(0, 280);
+  }, []);
+
+  const getFreshModelVoiceLine = useCallback((): string | null => {
+    if (Date.now() - lastModelVoiceLineAtRef.current > MODEL_VOICE_LINE_STALE_MS) {
+      return null;
+    }
+
+    const text = normalizeSpeechText(latestModelVoiceLineRef.current);
+    return text || null;
+  }, [normalizeSpeechText]);
+
+  const buildFallbackAngrySpeechText = useCallback((): string => {
     const now = Date.now();
 
     const distraction = (() => {
@@ -304,63 +321,26 @@ function App() {
     })();
 
     const sayings = [
-      `On ${distraction} again, ARRRRRREEEEEEEE we?............. Back to the task now.`,
-      "You MUSTTTTTTTT RETUUUURN to your duties.",
-      "FOOOOOCUUUUUSSSSSSS!!!!!!!, apprentice. One minute of effort........ now.",
-      "Bring me MOOOOREEEE Solanaaaa....... Tokenss.....",
-      `${distraction} is a DESTRACTIONNNNNNN..... beacause it is ${distraction}`,
-      "if you do not studyyiyiyiyi, I willl..... be taking ALLLLLLLLLLLL..... the solana tokens........"
-      // `Enough dalliance with ${distraction}. Begin.`,
-      // "Eyes on the work. The spell fails when you wander.",
-
-      // "By the ancient stopwatch—commit to the next step.",
-      // "No more side-quests. One task. One breath. Go.",
-      // `I sense ${distraction} in the air. Dispel it.`,
-      // "Gather your will. Restore your focus.",
-      // "Return to the page. The work awaits your hand.",
-
-      // "A wizard’s power is attention. Spend it wisely.",
-      // "Choose the smallest next action and cast it.",
-      // "Silence the noise. Summon the work.",
-      // "Not later. Not after. Now.",
-      // `Banish ${distraction}. The ritual continues.`,
-
-      // "You are not lost—merely off-course. Correct it.",
-      // "One minute of discipline. Then another.",
-      // "Steady hands. Clear mind. Begin again.",
-      // "Back to the quest log: the task in front of you.",
-      // `Ah. ${distraction}. A classic trap. Step away from it.`,
-
-      // "Refocus: read one line, write one line.",
-      // "Attend to the work as if it were a spell circle.",
-      // "Return to the workbench. Craft your progress.",
-
-      // "Cast: Concentration. Duration: until finished.",
-      // "Your wand is steady. Your mind should match.",
-      // "Let the distractions pass like harmless ghosts.",
-      // "One more paragraph. One more commit. One more step.",
-      // "Close the portal to chaos. Open the notebook.",
-      // "The spellbook is open. Write the next rune.",
+      `On ${distraction} again, are we? Back to the task now.`,
+      "You must return to your duties.",
+      "Fooooocus, apprentice. One minute of effort now.",
+      "No side quests. One task. One breath. Go.",
+      `${distraction} is a distraction. Banish it and resume.`,
     ];
 
-    // Stable-ish rotation so it doesn't repeat the same line every time.
     const idx = Math.floor(now / 10_000) % sayings.length;
     const base = sayings[idx] || sayings[0];
+    return normalizeSpeechText(base);
+  }, [normalizeSpeechText]);
 
-    // const suffix =
-    //   ps.enabled && ps.isRunning && !ps.isPaused && ps.mode === "work"
-    //     ? ` ${timeStr} remaining.`
-    //     : "";
+  const speakAngryNudge = useCallback(async (preferredText?: string) => {
+    const text = normalizeSpeechText(
+      preferredText || getFreshModelVoiceLine() || buildFallbackAngrySpeechText(),
+    );
+    if (!text) return;
 
-    return (base).slice(0, 280);
-  }, []);
-
-  const speakAngryNudge = useCallback(async () => {
     const api = window.wizardAPI;
     if (!api?.speak) return;
-
-    const text = buildAngrySpeechText();
-    if (!text) return;
 
     console.log("[TTS] requesting speech:", text);
     const result = await api.speak(text);
@@ -446,7 +426,7 @@ function App() {
     } catch (e) {
       console.warn("[TTS] audio playback failed:", e);
     }
-  }, [buildAngrySpeechText]);
+  }, [buildFallbackAngrySpeechText, getFreshModelVoiceLine, normalizeSpeechText]);
 
   // When emotion changes, update the wizard sprite's active row and play poof
   useEffect(() => {
@@ -481,8 +461,7 @@ function App() {
       // Speak a short focus nudge when we transition into angry.
       if (emotion === "mad") {
         const now = Date.now();
-        const COOLDOWN_MS = 5_000;
-        if (now - lastAngrySpokenAtRef.current >= COOLDOWN_MS) {
+        if (now - lastAngrySpokenAtRef.current >= ANGRY_VOICE_COOLDOWN_MS) {
           lastAngrySpokenAtRef.current = now;
           void speakAngryNudge();
         }
@@ -1063,6 +1042,12 @@ function App() {
         });
 
         if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          console.warn(
+            "Productivity endpoint error:",
+            response.status,
+            errText || response.statusText,
+          );
           return;
         }
 
@@ -1071,12 +1056,26 @@ function App() {
 
         if (parsed.success && isMounted) {
           const confidence = parsed.data.productivityConfidence;
+          const modelVoiceLine = parsed.data.productivityVoiceLine;
           setProductivityConfidence(confidence);
 
+          const now = Date.now();
           productivityConfidenceRef.current = confidence;
-          lastConfidenceAtRef.current = Date.now();
+          lastConfidenceAtRef.current = now;
+          latestModelVoiceLineRef.current = modelVoiceLine;
+          lastModelVoiceLineAtRef.current = now;
 
           applyEmotionFromSignals();
+
+          // Speak model-generated screenshot callouts while off-task, even when
+          // already in mad state, with a cooldown to avoid spam.
+          if (
+            confidence < 0.5 &&
+            now - lastAngrySpokenAtRef.current >= ANGRY_VOICE_COOLDOWN_MS
+          ) {
+            lastAngrySpokenAtRef.current = now;
+            void speakAngryNudge(modelVoiceLine);
+          }
         }
       } catch (error) {
         console.error("Failed to submit screenshot:", error);
@@ -1094,7 +1093,7 @@ function App() {
       isMounted = false;
       unsubscribe?.();
     };
-  }, [applyEmotionFromSignals]);
+  }, [applyEmotionFromSignals, speakAngryNudge]);
 
   // Subscribe to bridge focus + status so we can fetch attentiveness.
   useEffect(() => {
