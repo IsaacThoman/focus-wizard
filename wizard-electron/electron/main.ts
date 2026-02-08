@@ -39,6 +39,7 @@ let bridge: BridgeManager | null = null;
 
 function createSettingsWindow(mode: "setup" | "settings" = "settings") {
   if (settingsWin) {
+    settingsWin.show();
     settingsWin.focus();
     return;
   }

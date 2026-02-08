@@ -73,6 +73,7 @@ interface PomodoroStatus {
 export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const isSetup = mode === "setup";
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([]);
 
   const [focusData, setFocusData] = useState<FocusData | null>(null);
@@ -116,9 +117,11 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   }, [stream, webcamActive]);
 
   // Save settings whenever they change (for devMode to persist)
+  // Only save after initial load to avoid overwriting persisted settings with defaults
   useEffect(() => {
+    if (!settingsLoaded) return;
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
-  }, [settings]);
+  }, [settings, settingsLoaded]);
 
   const fetchWalletStatus = useCallback(async () => {
     setWalletLoading(true);
@@ -151,6 +154,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
         console.error("Failed to parse saved settings:", e);
       }
     }
+    setSettingsLoaded(true);
     // Load pomodoro status from localStorage
     const savedPomodoro = localStorage.getItem("focus-wizard-pomodoro-status");
     if (savedPomodoro) {

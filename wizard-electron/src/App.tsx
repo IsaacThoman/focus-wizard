@@ -54,6 +54,7 @@ function App() {
     number | null
   >(null);
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
+  const emotionRef = useRef<WizardEmotion>("happy");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenshotInFlightRef = useRef(false);
   const spriteManagerRef = useRef<SpriteManager | null>(null);
@@ -86,6 +87,7 @@ function App() {
 
   // When emotion changes, update the wizard sprite's active row
   useEffect(() => {
+    emotionRef.current = emotion;
     const manager = spriteManagerRef.current;
     if (!manager) return;
     const wizard = manager.get("wizard");
@@ -126,13 +128,15 @@ function App() {
 
     if (elapsed <= 0) return;
 
+    const currentEmotion = emotionRef.current;
+
     setPomodoroState((prev) => {
       if (!prev.enabled || !prev.isRunning) return prev;
 
       let newTimeRemaining = prev.timeRemaining;
 
       // Count down when happy/neutral, count up when mad (penalty)
-      if (emotion === "happy" || emotion === "neutral") {
+      if (currentEmotion === "happy" || currentEmotion === "neutral") {
         newTimeRemaining = Math.max(0, prev.timeRemaining - elapsed);
       } else {
         // When mad, add time (penalty)
@@ -142,7 +146,7 @@ function App() {
       }
 
       // Check if timer completed
-      if (newTimeRemaining === 0 && emotion !== "mad") {
+      if (newTimeRemaining === 0 && currentEmotion !== "mad") {
         // Switch modes
         const newMode = prev.mode === "work" ? "break" : "work";
         const settings = loadPomodoroSettings();
@@ -152,8 +156,21 @@ function App() {
 
         // If we just finished a break, increment iteration
         const newIteration = prev.mode === "break"
-          ? Math.min(prev.iteration + 1, prev.totalIterations)
+          ? prev.iteration + 1
           : prev.iteration;
+
+        // Stop if all iterations are complete (finished last break)
+        if (newIteration > prev.totalIterations) {
+          const doneState: PomodoroState = {
+            ...prev,
+            isRunning: false,
+            timeRemaining: 0,
+            mode: "work",
+            iteration: prev.totalIterations,
+          };
+          savePomodoroState(doneState);
+          return doneState;
+        }
 
         const newState: PomodoroState = {
           ...prev,
@@ -169,11 +186,16 @@ function App() {
       savePomodoroState(newState);
       return newState;
     });
-  }, [emotion, loadPomodoroSettings, savePomodoroState])
+  }, [loadPomodoroSettings, savePomodoroState])
 
-  // Initialize and run pomodoro timer
+  // Keep a ref to the latest handleTimerTick so the interval always calls the latest version
+  const handleTimerTickRef = useRef(handleTimerTick);
   useEffect(() => {
-    // Load initial state from localStorage
+    handleTimerTickRef.current = handleTimerTick;
+  }, [handleTimerTick]);
+
+  // Initialize pomodoro state from localStorage on mount (runs once)
+  useEffect(() => {
     const settings = loadPomodoroSettings();
     const savedState = localStorage.getItem("focus-wizard-pomodoro-status");
 
@@ -209,18 +231,24 @@ function App() {
         totalIterations: settings.pomodoroIterations,
       });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Run the pomodoro timer interval (stable, runs once)
+  useEffect(() => {
     lastTickRef.current = Date.now();
 
-    // Start the timer interval
-    pomodoroIntervalRef.current = setInterval(handleTimerTick, 1000);
+    // Start the timer interval — uses ref so callback identity never causes re-setup
+    pomodoroIntervalRef.current = setInterval(() => {
+      handleTimerTickRef.current();
+    }, 1000);
 
     return () => {
       if (pomodoroIntervalRef.current) {
         clearInterval(pomodoroIntervalRef.current);
       }
     };
-  }, [loadPomodoroSettings, handleTimerTick])
+  }, []);
 
   // Listen for settings changes from storage events
   useEffect(() => {
