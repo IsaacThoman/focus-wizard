@@ -15,6 +15,8 @@
       display: block;
       width: 100vw;
       height: 100vh;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
     }
   </style>
 </head>
@@ -24,13 +26,18 @@
 (function () {
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
-  const W = canvas.width = window.innerWidth;
-  const H = canvas.height = window.innerHeight;
+
+  // Pixel scale: render at 1/4 resolution for chunky pixel-art look
+  const PIXEL_SCALE = 4;
+  const W = canvas.width = Math.ceil(window.innerWidth / PIXEL_SCALE);
+  const H = canvas.height = Math.ceil(window.innerHeight / PIXEL_SCALE);
+
+  ctx.imageSmoothingEnabled = false;
 
   // ── State ──
-  let dismissing = false;   // true once we receive the dismiss signal
-  let dismissStartTime = 0; // when fade-out began
-  const FADE_OUT_MS = 1200;  // fade-out duration before closing
+  let dismissing = false;
+  let dismissStartTime = 0;
+  const FADE_OUT_MS = 1200;
   let globalAlphaMultiplier = 1.0;
 
   // Listen for dismiss signal from main process via preload
@@ -51,9 +58,9 @@
     const cx = Math.random() * W;
     const cy = Math.random() * H;
     const angle = Math.random() * Math.PI * 2;
-    const speed = 60 + Math.random() * 260;
+    const speed = (60 + Math.random() * 260) / PIXEL_SCALE;
     const life = 0.6 + Math.random() * 1.4;
-    const size = 1.5 + Math.random() * 4;
+    const size = 1 + Math.floor(Math.random() * 2); // 1-2 pixel squares
     const isWhite = Math.random() < 0.2;
     return { cx, cy, angle, speed, life, size, isWhite, age: 0 };
   }
@@ -61,7 +68,7 @@
   // Seed initial batch
   for (let i = 0; i < 220; i++) {
     const s = spawnSparkle();
-    s.age = Math.random() * s.life * 0.3; // stagger
+    s.age = Math.random() * s.life * 0.3;
     sparkles.push(s);
   }
 
@@ -76,10 +83,10 @@
     const particles = [];
     for (let j = 0; j < particleCount; j++) {
       const a = Math.random() * Math.PI * 2;
-      const spd = 80 + Math.random() * 300;
-      const sz = 1.5 + Math.random() * 3.5;
+      const spd = (80 + Math.random() * 300) / PIXEL_SCALE;
+      const sz = 1 + Math.floor(Math.random() * 2); // 1-2 pixel squares
       const life = 0.5 + Math.random() * 1.2;
-      particles.push({ a, spd, sz, life, age: 0, trail: [] });
+      particles.push({ a, spd, sz, life, age: 0, prevX: 0, prevY: 0, started: false });
     }
     return { x, y, hue, particles, age: 0 };
   }
@@ -87,37 +94,49 @@
   // Seed initial fireworks
   for (let i = 0; i < 12; i++) {
     const fw = spawnFirework();
-    fw.age = Math.random() * 0.5; // slight stagger
+    fw.age = Math.random() * 0.5;
     fireworks.push(fw);
   }
 
   // Spawn timers
   let lastSparkleSpawn = 0;
   let lastFireworkSpawn = 0;
-  const SPARKLE_SPAWN_INTERVAL = 0.08; // spawn new sparkles every 80ms
-  const FIREWORK_SPAWN_INTERVAL = 0.3;  // spawn new fireworks every 300ms
+  const SPARKLE_SPAWN_INTERVAL = 0.08;
+  const FIREWORK_SPAWN_INTERVAL = 0.3;
 
-  // ── Yellow flash: pulses instead of one-shot ──
+  // ── Yellow flash: pulses ──
   function drawYellowFlash(tSec) {
-    // Pulsing golden glow
     const pulse = 0.5 + 0.5 * Math.sin(tSec * 1.8);
-    let alpha = (0.15 + pulse * 0.25) * globalAlphaMultiplier;
-
-    const grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
-    grad.addColorStop(0, "rgba(255, 215, 0, " + alpha + ")");
-    grad.addColorStop(0.5, "rgba(255, 193, 7, " + (alpha * 0.8) + ")");
-    grad.addColorStop(1, "rgba(255, 160, 0, " + (alpha * 0.4) + ")");
-    ctx.fillStyle = grad;
+    // Keep this extremely subtle so it doesn't form obvious UI-like rectangles.
+    var alpha = (0.02 + pulse * 0.04) * globalAlphaMultiplier;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#ffb300";
     ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Helper: HSL to hex (simple, for pixel fill) ──
+  function hslToRgb(h, s, l) {
+    s /= 100; l /= 100;
+    var c = (1 - Math.abs(2 * l - 1)) * s;
+    var x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    var m = l - c / 2;
+    var r, g, b;
+    if (h < 60) { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+    return "rgb(" + Math.round((r + m) * 255) + "," + Math.round((g + m) * 255) + "," + Math.round((b + m) * 255) + ")";
   }
 
   function drawSparkles(dt) {
-    for (let i = sparkles.length - 1; i >= 0; i--) {
-      const s = sparkles[i];
+    for (var i = sparkles.length - 1; i >= 0; i--) {
+      var s = sparkles[i];
       s.age += dt;
 
       if (s.age >= s.life) {
-        // Recycle or remove
         if (!dismissing) {
           sparkles[i] = spawnSparkle();
         } else {
@@ -126,79 +145,79 @@
         continue;
       }
 
-      const progress = s.age / s.life;
-      const x = s.cx + Math.cos(s.angle) * s.speed * s.age;
-      const y = s.cy + Math.sin(s.angle) * s.speed * s.age + 40 * s.age * s.age;
-      const fade = (progress < 0.2 ? progress / 0.2 : 1.0 - (progress - 0.2) / 0.8) * globalAlphaMultiplier;
-      const r = s.size * (1.0 - progress * 0.5);
+      var progress = s.age / s.life;
+      var gravity = 40 / PIXEL_SCALE;
+      var x = Math.floor(s.cx + Math.cos(s.angle) * s.speed * s.age);
+      var y = Math.floor(s.cy + Math.sin(s.angle) * s.speed * s.age + gravity * s.age * s.age);
+      var fade = (progress < 0.2 ? progress / 0.2 : 1.0 - (progress - 0.2) / 0.8) * globalAlphaMultiplier;
 
       ctx.globalAlpha = fade;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      if (s.isWhite) {
-        ctx.fillStyle = "#fff";
-        ctx.shadowColor = "#ffd700";
-      } else {
-        ctx.fillStyle = "#ffd700";
-        ctx.shadowColor = "#ffea00";
-      }
-      ctx.shadowBlur = 12;
-      ctx.fill();
+      ctx.fillStyle = s.isWhite ? "#fff" : "#ffd700";
+      ctx.fillRect(x, y, s.size, s.size);
     }
     ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
   }
 
   function drawFireworks(dt) {
-    for (let i = fireworks.length - 1; i >= 0; i--) {
-      const fw = fireworks[i];
+    for (var i = fireworks.length - 1; i >= 0; i--) {
+      var fw = fireworks[i];
       fw.age += dt;
 
-      // Check if all particles are dead
-      let allDead = true;
-      for (const p of fw.particles) {
+      var allDead = true;
+      for (var j = 0; j < fw.particles.length; j++) {
+        var p = fw.particles[j];
         p.age += dt;
         if (p.age <= p.life) {
           allDead = false;
-          const progress = p.age / p.life;
-          const drag = 1.0 - progress * 0.6;
-          const dx = Math.cos(p.a) * p.spd * p.age * drag;
-          const dy = Math.sin(p.a) * p.spd * p.age * drag + 120 * p.age * p.age;
-          const x = fw.x + dx;
-          const y = fw.y + dy;
+          var progress = p.age / p.life;
+          var drag = 1.0 - progress * 0.6;
+          var gravity = 120 / PIXEL_SCALE;
+          var dx = Math.cos(p.a) * p.spd * p.age * drag;
+          var dy = Math.sin(p.a) * p.spd * p.age * drag + gravity * p.age * p.age;
+          var x = Math.floor(fw.x + dx);
+          var y = Math.floor(fw.y + dy);
 
-          p.trail.push({ x, y });
-          if (p.trail.length > 6) p.trail.shift();
+          var fade = (progress < 0.15 ? progress / 0.15 : Math.max(0, 1.0 - (progress - 0.15) / 0.85)) * globalAlphaMultiplier;
 
-          const fade = (progress < 0.15 ? progress / 0.15 : Math.max(0, 1.0 - (progress - 0.15) / 0.85)) * globalAlphaMultiplier;
-          const r = p.sz * (1.0 - progress * 0.4);
-
-          // Draw trail
-          if (p.trail.length > 1) {
-            ctx.beginPath();
-            ctx.moveTo(p.trail[0].x, p.trail[0].y);
-            for (let k = 1; k < p.trail.length; k++) {
-              ctx.lineTo(p.trail[k].x, p.trail[k].y);
+          // Draw trail as pixel line (bresenham-style: just draw prev and current)
+          if (p.started) {
+            var tx = p.prevX, ty = p.prevY;
+            var ddx = Math.abs(x - tx), ddy = Math.abs(y - ty);
+            var sx = tx < x ? 1 : -1, sy = ty < y ? 1 : -1;
+            var err = ddx - ddy;
+            ctx.globalAlpha = fade * 0.35;
+            ctx.fillStyle = hslToRgb(fw.hue, 100, 70);
+            // Draw a few trail pixels along the line
+            var steps = 0;
+            while (steps < 8 && (tx !== x || ty !== y)) {
+              ctx.fillRect(tx, ty, 1, 1);
+              var e2 = 2 * err;
+              if (e2 > -ddy) { err -= ddy; tx += sx; }
+              if (e2 < ddx) { err += ddx; ty += sy; }
+              steps++;
             }
-            ctx.strokeStyle = "hsla(" + fw.hue + ", 100%, 70%, " + (fade * 0.3) + ")";
-            ctx.lineWidth = r * 0.6;
-            ctx.stroke();
           }
+          p.prevX = x;
+          p.prevY = y;
+          p.started = true;
 
-          // Draw particle head
+          // Draw particle head as a pixel square
           ctx.globalAlpha = fade;
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.fillStyle = "hsl(" + fw.hue + ", 100%, " + (70 + progress * 20) + "%)";
-          ctx.shadowColor = "hsl(" + fw.hue + ", 100%, 60%)";
-          ctx.shadowBlur = 15;
-          ctx.fill();
+          var lightness = 70 + progress * 20;
+          ctx.fillStyle = hslToRgb(fw.hue, 100, lightness);
+          ctx.fillRect(x, y, p.sz, p.sz);
+
+          // Bright center pixel for larger particles
+          if (p.sz >= 2) {
+            ctx.fillStyle = "#fff";
+            ctx.globalAlpha = fade * 0.6;
+            ctx.fillRect(x, y, 1, 1);
+          }
         }
       }
 
       if (allDead) {
         if (!dismissing) {
-          // Replace with a fresh firework
           fireworks[i] = spawnFirework();
         } else {
           fireworks.splice(i, 1);
@@ -206,23 +225,21 @@
       }
     }
     ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
   }
 
-  let lastFrameTime = performance.now();
+  var lastFrameTime = performance.now();
 
   function tick(now) {
-    const dtMs = now - lastFrameTime;
+    var dtMs = now - lastFrameTime;
     lastFrameTime = now;
-    const dt = dtMs / 1000;
+    var dt = dtMs / 1000;
 
     // Handle fade-out during dismissal
     if (dismissing) {
-      const elapsed = now - dismissStartTime;
+      var elapsed = now - dismissStartTime;
       globalAlphaMultiplier = Math.max(0, 1.0 - elapsed / FADE_OUT_MS);
 
       if (globalAlphaMultiplier <= 0 || (sparkles.length === 0 && fireworks.length === 0)) {
-        // Fully faded — close
         if (window.focusWizard && window.focusWizard.closeSpellOverlay) {
           window.focusWizard.closeSpellOverlay();
         }
@@ -238,7 +255,6 @@
         lastSparkleSpawn -= SPARKLE_SPAWN_INTERVAL;
       }
 
-      // Spawn new fireworks continuously
       lastFireworkSpawn += dt;
       while (lastFireworkSpawn >= FIREWORK_SPAWN_INTERVAL) {
         fireworks.push(spawnFirework());

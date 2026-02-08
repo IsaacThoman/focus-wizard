@@ -226,6 +226,25 @@ function computeDelta(a: Buffer, b: Buffer): number {
   return pixelCount === 0 ? 0 : totalDiff / pixelCount;
 }
 
+async function withSpellOverlayTemporarilyHidden<T>(fn: () => Promise<T>): Promise<T> {
+  const overlay = spellOverlayWin;
+  if (!overlay || overlay.isDestroyed()) return await fn();
+
+  const prevOpacity = overlay.getOpacity();
+  if (prevOpacity <= 0) return await fn();
+
+  try {
+    overlay.setOpacity(0);
+    // Give the compositor a moment so the overlay isn't captured.
+    await new Promise((r) => setTimeout(r, 50));
+    return await fn();
+  } finally {
+    if (overlay && !overlay.isDestroyed()) {
+      overlay.setOpacity(prevOpacity);
+    }
+  }
+}
+
 /** Send the "take a screenshot now" signal to the renderer window. */
 function emitScreenshotTrigger() {
   lastTriggerTime = Date.now();
@@ -360,34 +379,36 @@ app.whenReady().then(() => {
 });
 
 ipcMain.handle("focus-wizard:capture-page-screenshot", async () => {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const targetWidth = Math.max(
-    1,
-    Math.floor(primaryDisplay.size.width * primaryDisplay.scaleFactor),
-  );
-  const targetHeight = Math.max(
-    1,
-    Math.floor(primaryDisplay.size.height * primaryDisplay.scaleFactor),
-  );
+  return await withSpellOverlayTemporarilyHidden(async () => {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const targetWidth = Math.max(
+      1,
+      Math.floor(primaryDisplay.size.width * primaryDisplay.scaleFactor),
+    );
+    const targetHeight = Math.max(
+      1,
+      Math.floor(primaryDisplay.size.height * primaryDisplay.scaleFactor),
+    );
 
-  const sources = await desktopCapturer.getSources({
-    types: ["screen"],
-    thumbnailSize: {
-      width: targetWidth,
-      height: targetHeight,
-    },
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: {
+        width: targetWidth,
+        height: targetHeight,
+      },
+    });
+
+    const source = sources.find((item) =>
+      item.display_id === String(primaryDisplay.id)
+    ) ??
+      sources[0];
+
+    if (!source) {
+      throw new Error("No screen source available for capture");
+    }
+
+    return source.thumbnail.toPNG().toString("base64");
   });
-
-  const source = sources.find((item) =>
-    item.display_id === String(primaryDisplay.id)
-  ) ??
-    sources[0];
-
-  if (!source) {
-    throw new Error("No screen source available for capture");
-  }
-
-  return source.thumbnail.toPNG().toString("base64");
 });
 
 ipcMain.handle("focus-wizard:open-settings", () => {
