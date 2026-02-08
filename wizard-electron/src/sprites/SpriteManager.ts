@@ -19,6 +19,10 @@ export interface AnimatedSprite {
   row: number;
   /** Optional z-index for draw ordering (lower draws first) */
   z?: number;
+  /** Whether to draw this sprite (default true) */
+  visible?: boolean;
+  /** Called once when a non-looping animation finishes */
+  onComplete?: (() => void) | null;
 }
 
 export interface StaticSprite {
@@ -57,6 +61,8 @@ export class SpriteManager {
       playing?: boolean;
       row?: number;
       z?: number;
+      visible?: boolean;
+      onComplete?: (() => void) | null;
     } = {},
   ): void {
     this.sprites.set(id, {
@@ -72,6 +78,8 @@ export class SpriteManager {
       loop: options.loop ?? true,
       row: options.row ?? 0,
       z: options.z ?? 0,
+      visible: options.visible ?? true,
+      onComplete: options.onComplete ?? null,
     });
   }
 
@@ -125,6 +133,7 @@ export class SpriteManager {
             sprite._col = 0;
           } else {
             sprite.playing = false;
+            sprite.onComplete?.();
           }
         } else {
           sprite._col = nextCol;
@@ -144,6 +153,7 @@ export class SpriteManager {
 
     for (const sprite of sorted) {
       if (sprite.kind === "animated") {
+        if (sprite.visible === false) continue;
         // Compute the linear frame index from row + column
         const frameIndex = sprite.row * sprite.sheet.framesPerRow + sprite._col;
         sprite.sheet.drawFrame(

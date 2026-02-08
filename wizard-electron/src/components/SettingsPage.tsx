@@ -28,19 +28,25 @@ interface FocusData {
 }
 
 export interface SettingsData {
+  pomodoroEnabled: boolean;
   pomodoroWorkMinutes: number;
   pomodoroBreakMinutes: number;
   pomodoroIterations: number;
   employerCode: string;
   devMode: boolean;
+  positivePrompt: string;
+  negativePrompt: string;
 }
 
 const DEFAULT_SETTINGS: SettingsData = {
+  pomodoroEnabled: false,
   pomodoroWorkMinutes: 25,
   pomodoroBreakMinutes: 5,
   pomodoroIterations: 4,
   employerCode: "",
   devMode: false,
+  positivePrompt: "",
+  negativePrompt: "",
 };
 
 interface ClickSparkle {
@@ -64,6 +70,15 @@ interface SettingsPageProps {
   mode?: "setup" | "settings";
 }
 
+interface PomodoroStatus {
+  enabled: boolean;
+  isRunning: boolean;
+  timeRemaining: number;
+  mode: "work" | "break";
+  iteration: number;
+  totalIterations: number;
+}
+
 export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const isSetup = mode === "setup";
   const [settings, setSettings] = useState<SettingsData>(() => {
@@ -77,6 +92,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
       return DEFAULT_SETTINGS;
     }
   });
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([]);
 
   const [focusData, setFocusData] = useState<FocusData | null>(null);
@@ -104,6 +120,14 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   useEffect(() => {
     latestBridgeStatusRef.current = bridgeStatus;
   }, [bridgeStatus]);
+  const [pomodoroStatus, setPomodoroStatus] = useState<PomodoroStatus>({
+    enabled: false,
+    isRunning: false,
+    timeRemaining: 0,
+    mode: "work",
+    iteration: 1,
+    totalIterations: 4,
+  });
 
   // Webcam capture - start immediately when dev mode is on (before bridge)
   const { stream, isActive: webcamActive, error: webcamError } = useWebcam({
@@ -136,9 +160,11 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   }, [stream, webcamActive]);
 
   // Save settings whenever they change (for devMode to persist)
+  // Only save after initial load to avoid overwriting persisted settings with defaults
   useEffect(() => {
+    if (!settingsLoaded) return;
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
-  }, [settings]);
+  }, [settings, settingsLoaded]);
 
   const fetchWalletStatus = useCallback(async () => {
     setWalletLoading(true);
@@ -162,7 +188,42 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
 
   // Fetch wallet status on mount
   useEffect(() => {
+    const savedSettings = localStorage.getItem("focus-wizard-settings");
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+      } catch (e) {
+        console.error("Failed to parse saved settings:", e);
+      }
+    }
+    setSettingsLoaded(true);
+    // Load pomodoro status from localStorage
+    const savedPomodoro = localStorage.getItem("focus-wizard-pomodoro-status");
+    if (savedPomodoro) {
+      try {
+        const parsed = JSON.parse(savedPomodoro);
+        setPomodoroStatus(parsed);
+      } catch (e) {
+        console.error("Failed to parse pomodoro status:", e);
+      }
+    }
+    // Also fetch wallet status on mount
     fetchWalletStatus();
+
+    // Listen for pomodoro status updates from main window
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "focus-wizard-pomodoro-status" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          setPomodoroStatus(parsed);
+        } catch (err) {
+          console.error("Failed to parse pomodoro status update:", err);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, [fetchWalletStatus]);
 
   // Fetch attentiveness score from Deno backend every 1s (strict interval)
@@ -445,6 +506,31 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     }
   };
 
+  const handlePomodoroToggle = () => {
+    const newEnabled = !settings.pomodoroEnabled;
+    setSettings({ ...settings, pomodoroEnabled: newEnabled });
+    // Update pomodoro status
+    const newStatus = {
+      ...pomodoroStatus,
+      enabled: newEnabled,
+      isRunning: newEnabled,
+      timeRemaining: settings.pomodoroWorkMinutes * 60,
+      mode: "work" as const,
+      iteration: 1,
+      totalIterations: settings.pomodoroIterations,
+    };
+    setPomodoroStatus(newStatus);
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
+    localStorage.setItem("focus-wizard-settings", JSON.stringify({ ...settings, pomodoroEnabled: newEnabled }));
+  };
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(Math.abs(seconds) / 60);
+    const secs = Math.abs(seconds) % 60;
+    const sign = seconds < 0 ? "-" : "";
+    return `${sign}${mins}:${secs.toString().padStart(2, "0")}`;
+  }
+
   const handleClick = (e: React.MouseEvent) => {
     const baseId = Date.now();
     const newSparkles: ClickSparkle[] = [];
@@ -511,11 +597,29 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
       <div className="settings-panel standalone">
         <div className="settings-header">
           <h2>{isSetup ? "WIZARD SETUP" : "WIZARD SETTINGS"}</h2>
+          {pomodoroStatus.enabled && (
+            <div className="pomodoro-status-header">
+              <div className={`pomodoro-indicator ${pomodoroStatus.isRunning ? "running" : "paused"}`} />
+              <span className="pomodoro-mode">{pomodoroStatus.mode === "work" ? "Focus" : "Rest"}</span>
+              <span className="pomodoro-timer">{formatTime(pomodoroStatus.timeRemaining)}</span>
+              <span className="pomodoro-iteration">{pomodoroStatus.iteration}/{pomodoroStatus.totalIterations}</span>
+            </div>
+          )}
         </div>
 
         <div className="settings-content">
           <section className="settings-section">
-            <h3>Pomodoro Timer</h3>
+            <div className="settings-section-header">
+              <h3>Pomodoro Timer</h3>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={settings.pomodoroEnabled}
+                  onChange={handlePomodoroToggle}
+                />
+                <span className="toggle-slider" />
+              </label>
+            </div>
             <div className="settings-field">
               <label htmlFor="work-minutes">Focus Time (minutes)</label>
               <input
@@ -555,6 +659,40 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
           </section>
 
           <section className="settings-section">
+            <h3>Focus Prompts</h3>
+            <div className="settings-field">
+              <label htmlFor="positive-prompt">
+                What should you be doing? (On-task)
+              </label>
+              <textarea
+                id="positive-prompt"
+                placeholder="e.g. studying for calculus, writing code, reading documentation"
+                value={settings.positivePrompt}
+                onChange={(e) =>
+                  setSettings({ ...settings, positivePrompt: e.target.value })
+                }
+                rows={3}
+                style={{ resize: "vertical" }}
+              />
+            </div>
+            <div className="settings-field">
+              <label htmlFor="negative-prompt">
+                What should you avoid? (Off-task)
+              </label>
+              <textarea
+                id="negative-prompt"
+                placeholder="e.g. Instagram, Twitter, YouTube, Reddit"
+                value={settings.negativePrompt}
+                onChange={(e) =>
+                  setSettings({ ...settings, negativePrompt: e.target.value })
+                }
+                rows={3}
+                style={{ resize: "vertical" }}
+              />
+            </div>
+          </section>
+
+          <section className="settings-section">
             <h3>Employer Link</h3>
             <div className="settings-field">
               <label htmlFor="employer-code">6-Digit Verification Code</label>
@@ -572,9 +710,9 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
           </section>
 
           <section className="settings-section">
-            <h3>Developer Settings</h3>
-            <div className="settings-field">
-              <label htmlFor="dev-mode">
+            <div className="settings-section-header">
+              <h3>Developer Settings</h3>
+              <label className="toggle-switch">
                 <input
                   id="dev-mode"
                   type="checkbox"
@@ -584,8 +722,12 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                     // Clear auth error when toggling to allow retry after adding credits
                     setAuthError(false);
                   }}
-                  style={{ width: "auto", marginRight: "8px" }}
                 />
+                <span className="toggle-slider" />
+              </label>
+            </div>
+            <div className="settings-field">
+              <label htmlFor="dev-mode" style={{ cursor: "pointer" }}>
                 Enable Dev Mode (Show Biometric Metrics)
               </label>
             </div>
