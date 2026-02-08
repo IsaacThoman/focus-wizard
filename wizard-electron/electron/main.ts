@@ -7,6 +7,7 @@ import {
   screen,
   shell,
 } from "electron";
+import type { Rectangle } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { BridgeManager, FocusData } from "./bridge-manager";
@@ -38,6 +39,143 @@ let settingsWin: BrowserWindow | null = null;
 let spellOverlayWin: BrowserWindow | null = null;
 let bridge: BridgeManager | null = null;
 let isQuitting = false;
+
+// ── Wizard hop-around effect (when spell fireworks are active) ───────────────
+type HopState = {
+  baseBounds: Rectangle;
+  fromX: number;
+  toX: number;
+  groundY: number;
+  hopStartAt: number;
+  hopDurationMs: number;
+  hopHeightPx: number;
+};
+
+let hopInterval: ReturnType<typeof setInterval> | null = null;
+let hopState: HopState | null = null;
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function pickHopTargetX(minX: number, maxX: number, currentX: number): number {
+  if (maxX <= minX) return minX;
+
+  const width = maxX - minX;
+  const minHop = Math.min(220, width * 0.35);
+
+  // Bias toward big hops by rejecting tiny moves.
+  for (let i = 0; i < 8; i++) {
+    const x = minX + Math.random() * width;
+    if (Math.abs(x - currentX) >= minHop) return x;
+  }
+  return minX + Math.random() * width;
+}
+
+function computeHopParams(fromX: number, toX: number): { durationMs: number; heightPx: number } {
+  const dist = Math.abs(toX - fromX);
+  const durationMs = clamp(520 + dist * 0.35, 520, 980);
+  const heightPx = clamp(55 + dist * 0.12, 55, 160);
+  return { durationMs, heightPx };
+}
+
+function startWizardHopAround(): void {
+  if (!win || win.isDestroyed()) return;
+  if (hopInterval) return;
+
+  const baseBounds = win.getBounds();
+  const display = screen.getDisplayMatching(baseBounds);
+  const workArea = display.workArea;
+  const margin = 12;
+
+  const minX = workArea.x + margin;
+  const maxX = workArea.x + Math.max(margin, workArea.width - baseBounds.width - margin);
+  const groundY = workArea.y + Math.max(margin, workArea.height - baseBounds.height - margin);
+
+  const startX = clamp(baseBounds.x, minX, maxX);
+  const nextX = pickHopTargetX(minX, maxX, startX);
+  const params = computeHopParams(startX, nextX);
+
+  hopState = {
+    baseBounds,
+    fromX: startX,
+    toX: nextX,
+    groundY,
+    hopStartAt: Date.now(),
+    hopDurationMs: params.durationMs,
+    hopHeightPx: params.heightPx,
+  };
+
+  const FRAME_MS = 16; // ~60fps for smooth hops
+
+  hopInterval = setInterval(() => {
+    if (!win || win.isDestroyed() || !hopState) {
+      stopWizardHopAround();
+      return;
+    }
+
+    const now = Date.now();
+    const winBounds = win.getBounds();
+    const displayNow = screen.getDisplayMatching(winBounds);
+    const workArea = displayNow.workArea;
+    const margin = 12;
+
+    const minX = workArea.x + margin;
+    const maxX = workArea.x + Math.max(margin, workArea.width - winBounds.width - margin);
+    const minY = workArea.y + margin;
+    const groundY = workArea.y + Math.max(margin, workArea.height - winBounds.height - margin);
+
+    // Update ground lock so the wizard stays near the bottom even if the display changes.
+    hopState.groundY = groundY;
+
+    const elapsedMs = now - hopState.hopStartAt;
+    const t = hopState.hopDurationMs > 0 ? clamp(elapsedMs / hopState.hopDurationMs, 0, 1) : 1;
+
+    // When we land, pick a new big hop target.
+    if (t >= 1) {
+      const landedX = clamp(hopState.toX, minX, maxX);
+      const nextX = pickHopTargetX(minX, maxX, landedX);
+      const params = computeHopParams(landedX, nextX);
+
+      hopState.fromX = landedX;
+      hopState.toX = nextX;
+      hopState.hopStartAt = now;
+      hopState.hopDurationMs = params.durationMs;
+      hopState.hopHeightPx = params.heightPx;
+    }
+
+    const eased = easeInOutCubic(t);
+    const rawX = hopState.fromX + (hopState.toX - hopState.fromX) * eased;
+
+    // Arc: start/end on the ground, peak mid-hop.
+    const availableHeight = Math.max(8, hopState.groundY - minY - 8);
+    const hopHeight = Math.min(hopState.hopHeightPx, availableHeight);
+    const yOffset = Math.sin(t * Math.PI) * hopHeight;
+    const rawY = hopState.groundY - yOffset;
+
+    const x = clamp(Math.round(rawX), Math.round(minX), Math.round(maxX));
+    const y = clamp(Math.round(rawY), Math.round(minY), Math.round(hopState.groundY));
+    win.setPosition(x, y, false);
+  }, FRAME_MS);
+}
+
+function stopWizardHopAround(): void {
+  if (hopInterval) {
+    clearInterval(hopInterval);
+    hopInterval = null;
+  }
+
+  const state = hopState;
+  hopState = null;
+
+  if (state && win && !win.isDestroyed()) {
+    win.setPosition(state.baseBounds.x, state.baseBounds.y, false);
+  }
+}
 
 function loadSettings() {
   if (!settingsWin) return;
@@ -138,6 +276,7 @@ function createWindow() {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on("window-all-closed", () => {
+  stopWizardHopAround();
   bridge?.stop();
   if (process.platform !== "darwin") {
     app.quit();
@@ -348,7 +487,11 @@ function createSpellOverlayWindow() {
 
   spellOverlayWin.on("closed", () => {
     spellOverlayWin = null;
+    stopWizardHopAround();
   });
+
+  // The wizard hops around while the fireworks are active.
+  startWizardHopAround();
 
   if (VITE_DEV_SERVER_URL) {
     spellOverlayWin.loadURL(`${VITE_DEV_SERVER_URL}spell-overlay.html`);
@@ -368,6 +511,7 @@ function dismissSpellOverlay() {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  stopWizardHopAround();
   bridge?.stop();
 });
 
@@ -569,4 +713,5 @@ ipcMain.handle("focus-wizard:close-spell-overlay", () => {
     spellOverlayWin.close();
     spellOverlayWin = null;
   }
+  stopWizardHopAround();
 });

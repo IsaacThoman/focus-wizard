@@ -15,9 +15,9 @@ interface Window {
 
     sendFrame: (timestampUs: number, data: ArrayBuffer) => void;
 
-    onFocus: (callback: (data: any) => void) => () => void;
-    onMetrics: (callback: (data: any) => void) => () => void;
-    onEdge: (callback: (data: any) => void) => () => void;
+    onFocus: (callback: (data: unknown) => void) => () => void;
+    onMetrics: (callback: (data: unknown) => void) => () => void;
+    onEdge: (callback: (data: unknown) => void) => () => void;
     onStatus: (callback: (status: string) => void) => () => void;
     onError: (callback: (message: string) => void) => () => void;
     onReady: (callback: () => void) => () => void;

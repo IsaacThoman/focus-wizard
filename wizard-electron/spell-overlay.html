@@ -35,10 +35,19 @@
   ctx.imageSmoothingEnabled = false;
 
   // ── State ──
+  const startTime = performance.now();
   let dismissing = false;
   let dismissStartTime = 0;
   const FADE_OUT_MS = 1200;
   let globalAlphaMultiplier = 1.0;
+
+  // Ramp up the chaos slowly.
+  const RAMP_MS = 12_000;
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  function getIntensity(now) {
+    return easeOutCubic(clamp01((now - startTime) / RAMP_MS));
+  }
 
   // Listen for dismiss signal from main process via preload
   if (window.focusWizard && window.focusWizard.onDismissSpell) {
@@ -52,7 +61,8 @@
 
   // ── Sparkle particle pool (continuously recycled) ──
   const sparkles = [];
-  const MAX_SPARKLES = 300;
+  const BASE_MAX_SPARKLES = 90;
+  const FULL_MAX_SPARKLES = 220;
 
   function spawnSparkle() {
     const cx = Math.random() * W;
@@ -66,7 +76,7 @@
   }
 
   // Seed initial batch
-  for (let i = 0; i < 220; i++) {
+  for (let i = 0; i < 70; i++) {
     const s = spawnSparkle();
     s.age = Math.random() * s.life * 0.3;
     sparkles.push(s);
@@ -75,25 +85,27 @@
   // ── Firework burst pool (continuously spawned) ──
   const fireworks = [];
 
-  function spawnFirework() {
+  function spawnFirework(intensity) {
     const x = W * 0.05 + Math.random() * W * 0.9;
     const y = H * 0.05 + Math.random() * H * 0.9;
-    const particleCount = 30 + Math.floor(Math.random() * 50);
+    const base = 14 + Math.floor(Math.random() * 18);
+    const extra = Math.floor(intensity * (18 + Math.random() * 44));
+    const particleCount = base + extra;
     const hue = 40 + Math.random() * 20; // yellow range (40-60)
     const particles = [];
     for (let j = 0; j < particleCount; j++) {
       const a = Math.random() * Math.PI * 2;
-      const spd = (80 + Math.random() * 300) / PIXEL_SCALE;
+      const spd = (70 + Math.random() * (180 + 220 * intensity)) / PIXEL_SCALE;
       const sz = 1 + Math.floor(Math.random() * 2); // 1-2 pixel squares
-      const life = 0.5 + Math.random() * 1.2;
+      const life = 0.55 + Math.random() * (0.7 + 0.7 * intensity);
       particles.push({ a, spd, sz, life, age: 0, prevX: 0, prevY: 0, started: false });
     }
     return { x, y, hue, particles, age: 0 };
   }
 
   // Seed initial fireworks
-  for (let i = 0; i < 12; i++) {
-    const fw = spawnFirework();
+  for (let i = 0; i < 3; i++) {
+    const fw = spawnFirework(0);
     fw.age = Math.random() * 0.5;
     fireworks.push(fw);
   }
@@ -101,14 +113,17 @@
   // Spawn timers
   let lastSparkleSpawn = 0;
   let lastFireworkSpawn = 0;
-  const SPARKLE_SPAWN_INTERVAL = 0.08;
-  const FIREWORK_SPAWN_INTERVAL = 0.3;
+  const SPARKLE_SPAWN_INTERVAL_BASE = 0.13;
+  const SPARKLE_SPAWN_INTERVAL_FULL = 0.06;
+  const FIREWORK_SPAWN_INTERVAL_BASE = 1.2;
+  const FIREWORK_SPAWN_INTERVAL_FULL = 0.33;
 
   // ── Yellow flash: pulses ──
   function drawYellowFlash(tSec) {
+    const intensity = getIntensity(performance.now());
     const pulse = 0.5 + 0.5 * Math.sin(tSec * 1.8);
     // Keep this extremely subtle so it doesn't form obvious UI-like rectangles.
-    var alpha = (0.02 + pulse * 0.04) * globalAlphaMultiplier;
+    var alpha = (0.01 + pulse * (0.02 + 0.03 * intensity)) * globalAlphaMultiplier;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = "#ffb300";
     ctx.fillRect(0, 0, W, H);
@@ -158,7 +173,7 @@
     ctx.globalAlpha = 1;
   }
 
-  function drawFireworks(dt) {
+  function drawFireworks(dt, intensity) {
     for (var i = fireworks.length - 1; i >= 0; i--) {
       var fw = fireworks[i];
       fw.age += dt;
@@ -218,7 +233,7 @@
 
       if (allDead) {
         if (!dismissing) {
-          fireworks[i] = spawnFirework();
+          fireworks[i] = spawnFirework(intensity);
         } else {
           fireworks.splice(i, 1);
         }
@@ -247,25 +262,31 @@
       }
     }
 
-    // Spawn new sparkles continuously
+    const intensity = getIntensity(now);
+
+    // Spawn new sparkles/fireworks continuously (ramping up)
     if (!dismissing) {
+      const maxSparkles = Math.round(BASE_MAX_SPARKLES + (FULL_MAX_SPARKLES - BASE_MAX_SPARKLES) * intensity);
+      const sparkleInterval = SPARKLE_SPAWN_INTERVAL_BASE + (SPARKLE_SPAWN_INTERVAL_FULL - SPARKLE_SPAWN_INTERVAL_BASE) * intensity;
+      const fireworkInterval = FIREWORK_SPAWN_INTERVAL_BASE + (FIREWORK_SPAWN_INTERVAL_FULL - FIREWORK_SPAWN_INTERVAL_BASE) * intensity;
+
       lastSparkleSpawn += dt;
-      while (lastSparkleSpawn >= SPARKLE_SPAWN_INTERVAL && sparkles.length < MAX_SPARKLES) {
+      while (lastSparkleSpawn >= sparkleInterval && sparkles.length < maxSparkles) {
         sparkles.push(spawnSparkle());
-        lastSparkleSpawn -= SPARKLE_SPAWN_INTERVAL;
+        lastSparkleSpawn -= sparkleInterval;
       }
 
       lastFireworkSpawn += dt;
-      while (lastFireworkSpawn >= FIREWORK_SPAWN_INTERVAL) {
-        fireworks.push(spawnFirework());
-        lastFireworkSpawn -= FIREWORK_SPAWN_INTERVAL;
+      while (lastFireworkSpawn >= fireworkInterval) {
+        fireworks.push(spawnFirework(intensity));
+        lastFireworkSpawn -= fireworkInterval;
       }
     }
 
     ctx.clearRect(0, 0, W, H);
 
     drawYellowFlash(now / 1000);
-    drawFireworks(dt);
+    drawFireworks(dt, intensity);
     drawSparkles(dt);
 
     requestAnimationFrame(tick);

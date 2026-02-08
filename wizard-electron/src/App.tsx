@@ -14,6 +14,7 @@ const ATTENTIVENESS_ENDPOINT = "http://localhost:8000/getAttentiveness";
 const CANVAS_WIDTH = 80;
 const CANVAS_HEIGHT = 120;
 const HEAD_START_MS = 15_000;
+const SHOW_DEBUG_MONITORS = false;
 
 export type WizardEmotion = "happy" | "neutral" | "mad";
 
@@ -28,7 +29,6 @@ const WIZARD_ROW_FALL_ASLEEP = 3; // Play once when entering break
 const WIZARD_ROW_SLEEPING = 4;    // Loop during break
 
 interface PomodoroSettings {
-  pomodoroEnabled: boolean
   pomodoroWorkMinutes: number
   pomodoroBreakMinutes: number
   pomodoroIterations: number
@@ -100,11 +100,12 @@ function App() {
   /** Whether the wizard is currently playing a break transition animation */
   const breakTransitionRef = useRef(false);
 
-  // Spell-cast state: triggered when timer penalty maxes out
+  // Spell-cast state: active during "mad" emotion in work sessions
   const spellCastingRef = useRef(false);
+  const [isSpellCasting, setIsSpellCasting] = useState(false);
   const spellStartTimeRef = useRef<number>(0); // Date.now() when spell started
-  const spellTriggeredForSessionRef = useRef(false); // Only fire once per work session
-  const SPELL_MIN_DURATION_MS = 15_000; // Minimum 15 seconds of fireworks
+  const SPELL_MIN_DURATION_MS = 2_000; // Prevent rapid flicker on/off
+  const spellDismissTimeoutRef = useRef<number | null>(null);
 
   const handleWandHover = (hovering: boolean) => {
     const manager = spriteManagerRef.current;
@@ -127,9 +128,12 @@ function App() {
   const prevShouldSleepRef = useRef(false);
 
   // Determine if wizard should be sleeping: break mode, paused, not running, or not enabled
-  const shouldWizardSleep = pomodoroState.enabled
+  const shouldWizardSleepRaw = pomodoroState.enabled
     ? (pomodoroState.mode === "break" || pomodoroState.isPaused || !pomodoroState.isRunning)
     : true; // Always sleep when pomodoro is not enabled
+
+  // Never fall asleep while the spell/fireworks are active.
+  const shouldWizardSleep = shouldWizardSleepRaw && !isSpellCasting;
 
   // Detect sleep state transitions and play sleep/wake animations
   useEffect(() => {
@@ -204,6 +208,7 @@ function App() {
   const dismissSpellCast = useCallback(() => {
     if (!spellCastingRef.current) return;
     spellCastingRef.current = false;
+    setIsSpellCasting(false);
 
     // Tell main process to dismiss (fade out) the overlay
     window.focusWizard?.dismissSpell();
@@ -221,15 +226,6 @@ function App() {
       }
     }
   }, [])
-
-  // Check if the spell can be dismissed: min duration elapsed AND no longer mad
-  const tryDismissSpell = useCallback(() => {
-    if (!spellCastingRef.current) return;
-    const elapsed = Date.now() - spellStartTimeRef.current;
-    if (elapsed >= SPELL_MIN_DURATION_MS && emotionRef.current !== "mad") {
-      dismissSpellCast();
-    }
-  }, [dismissSpellCast])
 
   const applyEmotionFromSignals = useCallback(() => {
     const now = Date.now();
@@ -305,7 +301,7 @@ function App() {
     }
 
     // Play poof overlay on emotion transitions (skip initial mount)
-    if (prevEmotion !== emotion) {
+      if (prevEmotion !== emotion) {
       const poof = manager.get("poof");
       if (poof && poof.kind === "animated") {
         // Row 0 = angry poof at 8fps, Row 1 = other transitions at 6fps
@@ -318,25 +314,33 @@ function App() {
         poof.visible = true;
       }
 
-      // If emotion changed away from "mad", try to dismiss the spell
-      if (prevEmotion === "mad" && emotion !== "mad") {
-        tryDismissSpell();
-      }
     }
-  }, [emotion, tryDismissSpell]);
+  }, [emotion]);
 
   // Load pomodoro settings from localStorage
   const loadPomodoroSettings = useCallback((): PomodoroSettings => {
     const saved = localStorage.getItem("focus-wizard-settings");
     const defaults: PomodoroSettings = {
-      pomodoroEnabled: false,
       pomodoroWorkMinutes: 25,
       pomodoroBreakMinutes: 5,
       pomodoroIterations: 4,
     };
+
+    const coerceInt = (val: unknown, fallback: number, min: number, max: number) => {
+      const n = typeof val === "number" ? val : typeof val === "string" ? Number(val) : NaN;
+      if (!Number.isFinite(n)) return fallback;
+      return Math.min(max, Math.max(min, Math.round(n)));
+    };
+
     if (saved) {
       try {
-        return { ...defaults, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved) ?? {};
+        return {
+          ...defaults,
+          pomodoroWorkMinutes: coerceInt(parsed.pomodoroWorkMinutes, defaults.pomodoroWorkMinutes, 1, 240),
+          pomodoroBreakMinutes: coerceInt(parsed.pomodoroBreakMinutes, defaults.pomodoroBreakMinutes, 1, 60),
+          pomodoroIterations: coerceInt(parsed.pomodoroIterations, defaults.pomodoroIterations, 1, 100),
+        };
       } catch (e) {
         console.error("Failed to parse pomodoro settings:", e);
       }
@@ -396,6 +400,7 @@ function App() {
   const triggerSpellCast = useCallback(() => {
     if (spellCastingRef.current) return;
     spellCastingRef.current = true;
+    setIsSpellCasting(true);
     spellStartTimeRef.current = Date.now();
 
     // Set wand to casting row during spell (row 2, 4 frames)
@@ -414,6 +419,71 @@ function App() {
     // Launch the fullscreen spell overlay window
     window.focusWizard?.triggerSpell();
   }, [])
+
+  const pomodoroEnabled = pomodoroState.enabled;
+  const pomodoroIsRunning = pomodoroState.isRunning;
+  const pomodoroIsPaused = pomodoroState.isPaused;
+  const pomodoroMode = pomodoroState.mode;
+  const pomodoroTimeRemaining = pomodoroState.timeRemaining;
+
+  // Keep spell overlay in sync with "mad" emotion during active work sessions.
+  // If the wizard is mad when a session starts (or becomes mad mid-session), start casting.
+  // When no longer maxed+mad, dismiss quickly (with a tiny min duration to prevent flicker).
+  useEffect(() => {
+    const settings = loadPomodoroSettings();
+    const maxPenalty = settings.pomodoroWorkMinutes * 60;
+
+    const sessionActiveWork =
+      pomodoroEnabled &&
+      pomodoroIsRunning &&
+      !pomodoroIsPaused &&
+      pomodoroMode === "work";
+
+    const shouldSpellBeActive =
+      emotion === "mad" &&
+      sessionActiveWork &&
+      maxPenalty > 0 &&
+      pomodoroTimeRemaining >= maxPenalty;
+
+    if (shouldSpellBeActive) {
+      if (spellDismissTimeoutRef.current !== null) {
+        window.clearTimeout(spellDismissTimeoutRef.current);
+        spellDismissTimeoutRef.current = null;
+      }
+      triggerSpellCast();
+      return;
+    }
+
+    if (!spellCastingRef.current) return;
+
+    const elapsed = Date.now() - spellStartTimeRef.current;
+    const remaining = Math.max(0, SPELL_MIN_DURATION_MS - elapsed);
+
+    if (spellDismissTimeoutRef.current !== null) {
+      window.clearTimeout(spellDismissTimeoutRef.current);
+      spellDismissTimeoutRef.current = null;
+    }
+
+    if (remaining === 0) {
+      dismissSpellCast();
+      return;
+    }
+
+    spellDismissTimeoutRef.current = window.setTimeout(() => {
+      spellDismissTimeoutRef.current = null;
+      dismissSpellCast();
+    }, remaining + 25);
+  }, [emotion, pomodoroEnabled, pomodoroIsRunning, pomodoroIsPaused, pomodoroMode, pomodoroTimeRemaining, loadPomodoroSettings, triggerSpellCast, dismissSpellCast]);
+
+  // Cleanup any pending dismiss timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (spellDismissTimeoutRef.current !== null) {
+        window.clearTimeout(spellDismissTimeoutRef.current);
+        spellDismissTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Handle timer tick - counts down when happy/neutral, up when mad (work mode only)
   // During break mode, always counts down regardless of emotion
@@ -438,22 +508,11 @@ function App() {
         // During work: count down when happy/neutral, count up when mad (penalty)
         if (currentEmotion === "happy" || currentEmotion === "neutral") {
           newTimeRemaining = Math.max(0, prev.timeRemaining - elapsed);
-          // If spell is active and we're no longer mad, try to dismiss it
-          if (spellCastingRef.current) {
-            setTimeout(() => tryDismissSpell(), 0);
-          }
         } else {
           // When mad, add time (penalty)
           const workMinutes = loadPomodoroSettings().pomodoroWorkMinutes;
           const maxPenalty = workMinutes * 60; // Cap at work session length
           newTimeRemaining = Math.min(maxPenalty, prev.timeRemaining + elapsed);
-
-          // If the timer just hit the max penalty, trigger the spell cast
-          if (newTimeRemaining >= maxPenalty && prev.timeRemaining < maxPenalty && !spellTriggeredForSessionRef.current) {
-            spellTriggeredForSessionRef.current = true;
-            // Schedule outside setState to avoid nested state updates
-            setTimeout(() => triggerSpellCast(), 0);
-          }
         }
       }
 
@@ -470,11 +529,6 @@ function App() {
         // Switch modes
         const newMode = prev.mode === "work" ? "break" : "work";
         const settings = loadPomodoroSettings();
-
-        // Reset spell trigger when entering a new work session
-        if (newMode === "work") {
-          spellTriggeredForSessionRef.current = false;
-        }
 
         // If we just finished a break, increment iteration
         const newIteration = prev.mode === "break"
@@ -520,7 +574,7 @@ function App() {
       savePomodoroState(newState);
       return newState;
     });
-  }, [loadPomodoroSettings, savePomodoroState, triggerSpellCast, tryDismissSpell])
+  }, [loadPomodoroSettings, savePomodoroState, completePomodoroCycle])
 
   // Keep a ref to the latest handleTimerTick so the interval always calls the latest version
   const handleTimerTickRef = useRef(handleTimerTick);
@@ -566,40 +620,38 @@ function App() {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "focus-wizard-settings" && e.newValue) {
         try {
-          const settings = JSON.parse(e.newValue);
+          const parsed = JSON.parse(e.newValue) ?? {};
+
+          const coerceInt = (val: unknown, fallback: number, min: number, max: number) => {
+            const n = typeof val === "number" ? val : typeof val === "string" ? Number(val) : NaN;
+            if (!Number.isFinite(n)) return fallback;
+            return Math.min(max, Math.max(min, Math.round(n)));
+          };
+
+          const settings = {
+            workMinutes: coerceInt(parsed.pomodoroWorkMinutes, 25, 1, 240),
+            breakMinutes: coerceInt(parsed.pomodoroBreakMinutes, 5, 1, 60),
+            iterations: coerceInt(parsed.pomodoroIterations, 4, 1, 100),
+          };
+
           setPomodoroState((prev) => {
-            // If disabling, stop everything
-            if (!settings.pomodoroEnabled) {
-              const newState: PomodoroState = {
-                ...prev,
-                enabled: false,
-                isRunning: false,
-                isPaused: false,
-                timeRemaining: 0,
-                mode: "work",
-                iteration: 1,
-              };
-              savePomodoroState(newState);
-              return newState;
+            const next: PomodoroState = {
+              ...prev,
+              totalIterations: settings.iterations,
+            };
+
+            // Keep iteration within bounds if the user reduces total iterations.
+            if (next.iteration > next.totalIterations) {
+              next.iteration = next.totalIterations;
             }
 
-            const newState: PomodoroState = {
-              ...prev,
-              enabled: settings.pomodoroEnabled ?? prev.enabled,
-              totalIterations: settings.pomodoroIterations ?? prev.totalIterations,
-            };
-            // If enabling and wasn't enabled before, reset fresh but do NOT auto-start.
-            // Starting is an explicit action from the settings window.
-            if (settings.pomodoroEnabled && !prev.enabled) {
-              spellTriggeredForSessionRef.current = false;
-              newState.isRunning = false;
-              newState.isPaused = false;
-              newState.timeRemaining = (settings.pomodoroWorkMinutes ?? 25) * 60;
-              newState.mode = "work";
-              newState.iteration = 1;
+            // Only adjust the displayed time when the timer isn't actively running.
+            if (!prev.isRunning) {
+              next.timeRemaining = (prev.mode === "break" ? settings.breakMinutes : settings.workMinutes) * 60;
             }
-            savePomodoroState(newState);
-            return newState;
+
+            savePomodoroState(next);
+            return next;
           });
         } catch (err) {
           console.error("Failed to parse settings update:", err);
@@ -790,6 +842,11 @@ function App() {
       if (screenshotInFlightRef.current) return;
       if (!window.focusWizard?.capturePageScreenshot) return;
 
+      // Never send screenshots for LLM evaluation during pomodoro breaks (or when not actively working).
+      const ps = pomodoroStateRef.current;
+      const allowScreenshot = ps.enabled && ps.isRunning && !ps.isPaused && ps.mode === "work";
+      if (!allowScreenshot) return;
+
       screenshotInFlightRef.current = true;
 
       try {
@@ -857,18 +914,21 @@ function App() {
       isMounted = false;
       unsubscribe?.();
     };
-  }, []);
+  }, [applyEmotionFromSignals]);
 
   // Subscribe to bridge focus + status so we can fetch attentiveness.
   useEffect(() => {
     const api = window.wizardAPI;
     if (!api) return;
 
+    const isRecord = (v: unknown): v is Record<string, unknown> =>
+      v !== null && typeof v === "object";
+
     const unsubs = [
-      api.onFocus((data: any) => {
+      api.onFocus((data: unknown) => {
         const now = Date.now();
 
-        if (data && data.face_detected === true) {
+        if (isRecord(data) && data.face_detected === true) {
           everSeenFaceRef.current = true;
           lastFaceSeenAtRef.current = now;
           if (awayOverrideRef.current) {
@@ -877,7 +937,11 @@ function App() {
           }
         }
 
-        if (data && typeof data.gaze_x === "number" && typeof data.gaze_y === "number") {
+        if (
+          isRecord(data) &&
+          typeof data.gaze_x === "number" &&
+          typeof data.gaze_y === "number"
+        ) {
           latestGazeRef.current = { gaze_x: data.gaze_x, gaze_y: data.gaze_y };
         }
       }),
@@ -889,7 +953,7 @@ function App() {
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, []);
+  }, [applyEmotionFromSignals]);
 
   // Away detection: if no face for >3s => mad; when face returns => clear override.
   useEffect(() => {
@@ -985,14 +1049,15 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
-{/* Uncomment this if you want to debug the confidence monitor and the attentivenes monitor */}
-        {/* <div className="confidence-monitor">
-          Conf: {productivityConfidence === null
-            ? "--"
-            : productivityConfidence.toFixed(2)}
-          {"  "}
-          Attn: {attentiveness === null ? "--" : attentiveness.toFixed(2)}
-        </div> */}
+        {SHOW_DEBUG_MONITORS && (
+          <div className="confidence-monitor">
+            Conf: {productivityConfidence === null
+              ? "--"
+              : productivityConfidence.toFixed(2)}
+            {"  "}
+            Attn: {attentiveness === null ? "--" : attentiveness.toFixed(2)}
+          </div>
+        )}
       </main>
     </>
   );
