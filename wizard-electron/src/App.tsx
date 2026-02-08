@@ -3,7 +3,8 @@ import {
   type GetProductivityConfidenceRequest,
   getProductivityConfidenceResponseSchema,
 } from "@shared/productivitySchemas";
-import { SpriteManager, SpriteSheet } from "./sprites";
+import { SpriteManager, SpriteSheet, NumberRenderer } from "./sprites";
+import type { NumberColor } from "./sprites";
 import "./App.css";
 
 const PRODUCTIVITY_ENDPOINT = "http://localhost:8000/getProductivityConfidence";
@@ -50,7 +51,7 @@ function spriteUrl(filename: string): string {
 }
 
 function App() {
-  const [productivityConfidence, setProductivityConfidence] = useState<
+  const [, setProductivityConfidence] = useState<
     number | null
   >(null);
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
@@ -58,6 +59,7 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenshotInFlightRef = useRef(false);
   const spriteManagerRef = useRef<SpriteManager | null>(null);
+  const numberRendererRef = useRef<NumberRenderer | null>(null);
   const animFrameRef = useRef<number>(0);
 
   // Pomodoro timer state
@@ -71,6 +73,7 @@ function App() {
   });
   const pomodoroIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTickRef = useRef<number>(Date.now());
+  const pomodoroStateRef = useRef(pomodoroState);
 
   const handleWandHover = (hovering: boolean) => {
     const manager = spriteManagerRef.current;
@@ -80,6 +83,11 @@ function App() {
       wand.row = hovering ? 1 : 0;
     }
   };
+
+  // Keep pomodoroStateRef in sync for the draw loop
+  useEffect(() => {
+    pomodoroStateRef.current = pomodoroState;
+  }, [pomodoroState]);
 
   const handleWandAreaClick = () => {
     window.focusWizard?.openSettings();
@@ -124,9 +132,9 @@ function App() {
   const handleTimerTick = useCallback(() => {
     const now = Date.now();
     const elapsed = Math.floor((now - lastTickRef.current) / 1000);
-    lastTickRef.current = now;
-
     if (elapsed <= 0) return;
+    // Only advance by the whole seconds consumed, preserving the sub-second remainder
+    lastTickRef.current += elapsed * 1000;
 
     const currentEmotion = emotionRef.current;
 
@@ -346,6 +354,11 @@ function App() {
           row: 0,
           z: 2,
         });
+
+        // Load number sprites for pomodoro timer display on the pot
+        const numberImg = await loadImage(spriteUrl("number-sprites.png"));
+        if (cancelled) return;
+        numberRendererRef.current = new NumberRenderer(numberImg);
       } catch (err) {
         console.error("Failed to load sprites:", err);
         if (!cancelled) {
@@ -357,6 +370,15 @@ function App() {
 
     void setup();
 
+    // Helper: pick number sprite colour based on pomodoro state
+    const getTimerColor = (): NumberColor => {
+      const ps = pomodoroStateRef.current;
+      if (ps.mode === "break") return "green";
+      // During work: blue when counting down, red when counting up (penalty)
+      if (emotionRef.current === "mad") return "red";
+      return "blue";
+    };
+
     // Animation loop
     let lastTime = performance.now();
     const tick = (now: number) => {
@@ -366,6 +388,22 @@ function App() {
 
       manager.update(delta);
       manager.draw(ctx);
+
+      // Draw pomodoro timer on the pot using sprite numbers
+      const ps = pomodoroStateRef.current;
+      const nr = numberRendererRef.current;
+      if (ps.enabled && nr) {
+        const mins = Math.floor(Math.abs(ps.timeRemaining) / 60);
+        const secs = Math.abs(ps.timeRemaining) % 60;
+        const timeStr =
+          mins.toString().padStart(2, "0") +
+          ":" +
+          secs.toString().padStart(2, "0");
+        const color = getTimerColor();
+
+        // Centre the time string on the pot (canvas centre, near bottom)
+        nr.drawTextCentered(ctx, timeStr, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 24, color);
+      }
 
       animFrameRef.current = requestAnimationFrame(tick);
     };
@@ -444,13 +482,6 @@ function App() {
     };
   }, []);
 
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(Math.abs(seconds) / 60);
-    const secs = Math.abs(seconds) % 60;
-    const sign = seconds < 0 ? "-" : "";
-    return `${sign}${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
   return (
     <>
       <main className="pixel-stage">
@@ -468,18 +499,6 @@ function App() {
             onMouseLeave={() => handleWandHover(false)}
             onClick={handleWandAreaClick}
           />
-        </div>
-        {pomodoroState.enabled && (
-          <div className={`pomodoro-display ${emotion === "mad" ? "penalty" : ""}`}>
-            <span className="pomodoro-mode-indicator">{pomodoroState.mode === "work" ? "FOCUS" : "REST"}</span>
-            <span className="pomodoro-time">{formatTime(pomodoroState.timeRemaining)}</span>
-            <span className="pomodoro-progress">{pomodoroState.iteration}/{pomodoroState.totalIterations}</span>
-          </div>
-        )}
-        <div className="confidence-pill">
-          Confidence: {productivityConfidence === null
-            ? "--"
-            : productivityConfidence.toFixed(2)}
         </div>
       </main>
     </>
