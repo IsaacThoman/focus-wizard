@@ -49,14 +49,18 @@ Things the user wants to avoid:
 ${avoid}`;
 }
 
+// Model output is expected to use `voiceLine` (per response_format json_schema),
+// but accept `productivityVoiceLine` for backward compatibility.
 const apiResponseSchema = z.object({
   confidence: z.number().min(0).max(1),
+  voiceLine: z.string().nullable().optional(),
   productivityVoiceLine: z.string().nullable().optional(),
 });
 type ModelFocusResult = z.infer<typeof apiResponseSchema>;
 const partialApiResponseSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
-  productivityVoiceLine: z.string().optional(),
+  voiceLine: z.string().nullable().optional(),
+  productivityVoiceLine: z.string().nullable().optional(),
 });
 
 function normalizeImageDataUrl(input: string): string {
@@ -217,7 +221,10 @@ async function getConfidenceFromModel(
     const parsedJson = parseModelJsonPayload(content);
     const strictParsed = apiResponseSchema.safeParse(parsedJson);
     if (strictParsed.success) {
-      const productivityVoiceLine = sanitizeVoiceLine(strictParsed.data.productivityVoiceLine);
+      const voiceLineRaw = strictParsed.data.voiceLine ??
+        strictParsed.data.productivityVoiceLine;
+      const productivityVoiceLine = sanitizeVoiceLine(voiceLineRaw) ??
+        buildFallbackVoiceLine(strictParsed.data.confidence);
 
       confidenceForLog = strictParsed.data.confidence;
       voiceLineForLog = productivityVoiceLine || null;
@@ -236,9 +243,10 @@ async function getConfidenceFromModel(
     }
 
     const confidence = partialParsed.data.confidence;
-    const productivityVoiceLine = sanitizeVoiceLine(
-      partialParsed.data.productivityVoiceLine || buildFallbackVoiceLine(confidence),
-    );
+    const voiceLineRaw = partialParsed.data.voiceLine ??
+      partialParsed.data.productivityVoiceLine;
+    const productivityVoiceLine = sanitizeVoiceLine(voiceLineRaw) ??
+      buildFallbackVoiceLine(confidence);
     confidenceForLog = confidence;
     voiceLineForLog = productivityVoiceLine;
     return { confidence, productivityVoiceLine };
