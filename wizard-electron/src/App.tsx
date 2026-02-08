@@ -19,6 +19,10 @@ const EMOTION_ROW: Record<WizardEmotion, number> = {
   mad: 0,
 };
 
+// Break-mode wizard animation rows
+const WIZARD_ROW_FALL_ASLEEP = 3; // Play once when entering break
+const WIZARD_ROW_SLEEPING = 4;    // Loop during break
+
 interface PomodoroSettings {
   pomodoroEnabled: boolean
   pomodoroWorkMinutes: number
@@ -75,6 +79,9 @@ function App() {
   const lastTickRef = useRef<number>(Date.now());
   const pomodoroStateRef = useRef(pomodoroState);
   const cycleCompletionInFlightRef = useRef(false);
+  const prevPomodoroModeRef = useRef<'work' | 'break'>(pomodoroState.mode);
+  /** Whether the wizard is currently playing a break transition animation */
+  const breakTransitionRef = useRef(false);
 
   const handleWandHover = (hovering: boolean) => {
     const manager = spriteManagerRef.current;
@@ -90,6 +97,73 @@ function App() {
     pomodoroStateRef.current = pomodoroState;
   }, [pomodoroState]);
 
+  // Detect work/break mode transitions and play break animations
+  useEffect(() => {
+    const prevMode = prevPomodoroModeRef.current;
+    const newMode = pomodoroState.mode;
+    prevPomodoroModeRef.current = newMode;
+
+    if (prevMode === newMode) return;
+    if (!pomodoroState.enabled) return;
+
+    const manager = spriteManagerRef.current;
+    if (!manager) return;
+    const wizard = manager.get("wizard");
+    if (!wizard || wizard.kind !== "animated") return;
+
+    const wand = manager.get("wand");
+
+    if (newMode === "break") {
+      // Hide wand while sleeping
+      if (wand && wand.kind === "animated") wand.visible = false;
+
+      // Entering break: play "fall asleep" row once, then loop "sleeping"
+      breakTransitionRef.current = true;
+      wizard.row = WIZARD_ROW_FALL_ASLEEP;
+      wizard.reverse = false;
+      wizard._col = 0;
+      wizard._elapsed = 0;
+      wizard.loop = false;
+      wizard.playing = true;
+      wizard.onComplete = () => {
+        // Transition to sleeping loop
+        wizard.row = WIZARD_ROW_SLEEPING;
+        wizard._col = 0;
+        wizard._elapsed = 0;
+        wizard.loop = true;
+        wizard.playing = true;
+        wizard.reverse = false;
+        wizard.onComplete = null;
+        breakTransitionRef.current = false;
+      };
+    } else {
+      // Leaving break (back to work): play "fall asleep" row in reverse (wake up),
+      // then return to the current emotion row
+      breakTransitionRef.current = true;
+      wizard.row = WIZARD_ROW_FALL_ASLEEP;
+      wizard.reverse = true;
+      wizard._col = wizard.sheet.framesPerRow - 1;
+      wizard._elapsed = 0;
+      wizard.loop = false;
+      wizard.playing = true;
+      wizard.onComplete = () => {
+        // Show wand again when awake
+        const w = manager.get("wand");
+        if (w && w.kind === "animated") w.visible = true;
+
+        // Return to normal emotion-based animation
+        wizard.row = EMOTION_ROW[emotionRef.current];
+        wizard._col = 0;
+        wizard._elapsed = 0;
+        wizard.loop = true;
+        wizard.playing = true;
+        wizard.reverse = false;
+        wizard.onComplete = null;
+        breakTransitionRef.current = false;
+      };
+    }
+  }, [pomodoroState.mode, pomodoroState.enabled]);
+
   const handleWandAreaClick = () => {
     window.focusWizard?.openSettings();
   };
@@ -100,8 +174,13 @@ function App() {
     emotionRef.current = emotion;
     const manager = spriteManagerRef.current;
     if (!manager) return;
+
+    // Don't change wizard row during break mode or break transitions
+    const isInBreak = pomodoroStateRef.current.enabled && pomodoroStateRef.current.mode === "break";
+    const isTransitioning = breakTransitionRef.current;
+
     const wizard = manager.get("wizard");
-    if (wizard && wizard.kind === "animated") {
+    if (wizard && wizard.kind === "animated" && !isInBreak && !isTransitioning) {
       wizard.row = EMOTION_ROW[emotion];
     }
 
@@ -394,8 +473,8 @@ function App() {
           z: 0,
         });
 
-        // Load wizard sprite sheet (400x384, 80x128 frames = 5 cols x 3 rows)
-        // Rows: 0=happy, 1=neutral, 2=mad
+        // Load wizard sprite sheet (400x640, 80x128 frames = 5 cols x 5 rows)
+        // Rows: 0=mad, 1=happy, 2=neutral, 3=fall asleep (transition), 4=sleeping (loop)
         const wizardImg = await loadImage(spriteUrl("wizard-sprites.png"));
         if (cancelled) return;
 
