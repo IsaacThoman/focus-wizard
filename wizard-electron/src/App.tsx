@@ -93,14 +93,30 @@ function App() {
     window.focusWizard?.openSettings();
   };
 
-  // When emotion changes, update the wizard sprite's active row
+  // When emotion changes, update the wizard sprite's active row and play poof
   useEffect(() => {
+    const prevEmotion = emotionRef.current;
     emotionRef.current = emotion;
     const manager = spriteManagerRef.current;
     if (!manager) return;
     const wizard = manager.get("wizard");
     if (wizard && wizard.kind === "animated") {
       wizard.row = EMOTION_ROW[emotion];
+    }
+
+    // Play poof overlay on emotion transitions (skip initial mount)
+    if (prevEmotion !== emotion) {
+      const poof = manager.get("poof");
+      if (poof && poof.kind === "animated") {
+        // Row 0 = angry poof at 8fps, Row 1 = other transitions at 6fps
+        const isAngryTransition = emotion === "mad";
+        poof.row = isAngryTransition ? 0 : 1;
+        poof.fps = isAngryTransition ? 8 : 6;
+        poof._col = 0;
+        poof._elapsed = 0;
+        poof.playing = true;
+        poof.visible = true;
+      }
     }
   }, [emotion]);
 
@@ -353,6 +369,29 @@ function App() {
           playing: true,
           row: 0,
           z: 2,
+        });
+
+        // Load poof sprite sheet (480x256, 80x128 frames = 6 cols x 2 rows)
+        // Row 0 = angry transition poof (smoke), Row 1 = other transitions (sparkle)
+        const poofImg = await loadImage(spriteUrl("wizard-poof.png"));
+        if (cancelled) return;
+
+        const poofSheet = new SpriteSheet(poofImg, 80, 128);
+        const poofX = Math.floor((CANVAS_WIDTH - 80) / 2);
+        const poofY = CANVAS_HEIGHT - 128;
+        manager.addAnimated("poof", poofSheet, poofX, poofY, {
+          fps: 8,
+          loop: false,
+          playing: false,
+          visible: false,
+          row: 0,
+          z: 3,
+          onComplete: () => {
+            const p = manager.get("poof");
+            if (p && p.kind === "animated") {
+              p.visible = false;
+            }
+          },
         });
 
         // Load number sprites for pomodoro timer display on the pot
