@@ -51,12 +51,12 @@ ${avoid}`;
 
 const apiResponseSchema = z.object({
   confidence: z.number().min(0).max(1),
-  voiceLine: z.string().min(1).max(280),
+  productivityVoiceLine: z.string().nullable().optional(),
 });
 type ModelFocusResult = z.infer<typeof apiResponseSchema>;
 const partialApiResponseSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
-  voiceLine: z.string().optional(),
+  productivityVoiceLine: z.string().optional(),
 });
 
 function normalizeImageDataUrl(input: string): string {
@@ -67,7 +67,8 @@ function normalizeImageDataUrl(input: string): string {
   return `data:image/png;base64,${input}`;
 }
 
-function sanitizeVoiceLine(text: string): string {
+function sanitizeVoiceLine(text: string | null | undefined): string | null {
+  if (!text) return null;
   return text.replace(/\s+/g, " ").trim().slice(0, 280);
 }
 
@@ -129,7 +130,7 @@ async function getConfidenceFromModel(
 ): Promise<ModelFocusResult> {
   const startedAt = performance.now();
   let confidenceForLog: number | null = null;
-  let voiceLineForLog = "";
+  let voiceLineForLog: string | null = null;
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not set");
   }
@@ -198,10 +199,10 @@ async function getConfidenceFromModel(
     const refusal = typeof message?.refusal === "string" ? message.refusal : "";
     if (refusal) {
       const confidence = 0.5;
-      const voiceLine = "The vision spell was blocked. Return to your quest.";
+      const productivityVoiceLine = "The vision spell was blocked. Return to your quest.";
       confidenceForLog = confidence;
-      voiceLineForLog = voiceLine;
-      return { confidence, voiceLine };
+      voiceLineForLog = productivityVoiceLine;
+      return { confidence, productivityVoiceLine };
     }
 
     const content = extractMessageText(message);
@@ -216,16 +217,13 @@ async function getConfidenceFromModel(
     const parsedJson = parseModelJsonPayload(content);
     const strictParsed = apiResponseSchema.safeParse(parsedJson);
     if (strictParsed.success) {
-      const voiceLine = sanitizeVoiceLine(strictParsed.data.voiceLine);
-      if (!voiceLine) {
-        throw new Error("Model returned an empty voiceLine");
-      }
+      const productivityVoiceLine = sanitizeVoiceLine(strictParsed.data.productivityVoiceLine);
 
       confidenceForLog = strictParsed.data.confidence;
-      voiceLineForLog = voiceLine;
+      voiceLineForLog = productivityVoiceLine || null;
       return {
         confidence: strictParsed.data.confidence,
-        voiceLine,
+        productivityVoiceLine,
       };
     }
 
@@ -238,12 +236,12 @@ async function getConfidenceFromModel(
     }
 
     const confidence = partialParsed.data.confidence;
-    const voiceLine = sanitizeVoiceLine(
-      partialParsed.data.voiceLine || buildFallbackVoiceLine(confidence),
+    const productivityVoiceLine = sanitizeVoiceLine(
+      partialParsed.data.productivityVoiceLine || buildFallbackVoiceLine(confidence),
     );
     confidenceForLog = confidence;
-    voiceLineForLog = voiceLine;
-    return { confidence, voiceLine };
+    voiceLineForLog = productivityVoiceLine;
+    return { confidence, productivityVoiceLine };
   } finally {
     const elapsedMs = performance.now() - startedAt;
     const confidenceText = confidenceForLog === null
@@ -283,7 +281,7 @@ router.post("/getProductivityConfidence", async (ctx: any) => {
 
     const responsePayload = getProductivityConfidenceResponseSchema.parse({
       productivityConfidence: modelResult.confidence,
-      productivityVoiceLine: modelResult.voiceLine,
+      productivityVoiceLine: modelResult.productivityVoiceLine,
     });
 
     ctx.response.status = Status.OK;
