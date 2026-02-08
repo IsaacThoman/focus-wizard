@@ -77,3 +77,7 @@ Thumbs.db
 /tmp/focus-wizard-frames/
 
 deno-backend/screenshots/
+
+deno-backend/.env_fw
+
+deno-backend/.env_gem
