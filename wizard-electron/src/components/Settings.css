@@ -374,6 +374,19 @@
   box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.4);
 }
 
+.settings-button.neutral {
+  background: #4a4a4a;
+  color: #f0f0f0;
+  border-color: #6a6a6a;
+  text-shadow: none;
+}
+
+.settings-button.neutral:hover {
+  background: #5a5a5a;
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.4);
+}
+
 .settings-button.primary {
   background: #f4d58d;
   color: #2d1b4e;

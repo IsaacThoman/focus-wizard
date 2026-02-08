@@ -448,7 +448,8 @@ export function SettingsPage() {
     }
   }, [settings.devMode, webcamActive, bridgeReady, authError]);
 
-  const handleSave = () => {
+  const handleCloseMenu = () => {
+    // Persist immediately in case the user closes right after a change.
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
     // Hide window instead of closing to keep monitoring active
     if (window.wizardAPI?.hideWindow) {
@@ -1156,10 +1157,10 @@ export function SettingsPage() {
 
         <div className="settings-footer">
           <button
-            className="settings-button primary"
-            onClick={handleSave}
+            className="settings-button neutral"
+            onClick={handleCloseMenu}
           >
-            Save
+            Close Menu
           </button>
         </div>
         <div className="settings-footer-quit">
