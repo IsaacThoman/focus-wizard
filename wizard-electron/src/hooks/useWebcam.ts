@@ -19,6 +19,15 @@ interface UseWebcamOptions {
   quality?: number;
   /** Whether capture is enabled */
   enabled?: boolean;
+
+  /**
+   * Duty-cycle the *sending* of frames to the bridge to reduce usage.
+   * Set to `{ onMs: 0, offMs: 0 }` to disable duty-cycling (always on).
+   */
+  dutyCycle?: {
+    onMs: number;
+    offMs: number;
+  };
 }
 
 interface UseWebcamReturn {
@@ -43,6 +52,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
     fps = 15,
     quality = 0.80,
     enabled = false,
+    dutyCycle = { onMs: 0, offMs: 0 },
   } = options;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -51,11 +61,66 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const capturingRef = useRef(false); // Guard against overlapping captures
 
+  const dutyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dutyOnRef = useRef(true);
+
   const [isActive, setIsActive] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const isIgnorablePlayError = (err: unknown): boolean => {
+    if (!err || typeof err !== "object") return false;
+    const anyErr = err as { name?: unknown; message?: unknown };
+    const name = typeof anyErr.name === "string" ? anyErr.name : "";
+    const message = typeof anyErr.message === "string" ? anyErr.message : "";
+    return (
+      name === "AbortError" ||
+      message.includes("The play() request was interrupted by a new load request")
+    );
+  };
+
+  const stopDutyCycle = useCallback(() => {
+    if (dutyTimerRef.current) {
+      clearTimeout(dutyTimerRef.current);
+      dutyTimerRef.current = null;
+    }
+    dutyOnRef.current = false;
+  }, []);
+
+  const startDutyCycle = useCallback(() => {
+    if (dutyTimerRef.current) {
+      clearTimeout(dutyTimerRef.current);
+      dutyTimerRef.current = null;
+    }
+
+    // Duty-cycling disabled => always ON
+    if (dutyCycle.onMs <= 0 || dutyCycle.offMs <= 0) {
+      dutyOnRef.current = true;
+      return;
+    }
+
+    dutyOnRef.current = true;
+
+    const scheduleOff = () => {
+      dutyTimerRef.current = setTimeout(() => {
+        dutyOnRef.current = false;
+        scheduleOn();
+      }, dutyCycle.onMs);
+    };
+
+    const scheduleOn = () => {
+      dutyTimerRef.current = setTimeout(() => {
+        dutyOnRef.current = true;
+        scheduleOff();
+      }, dutyCycle.offMs);
+    };
+
+    scheduleOff();
+  }, [dutyCycle.offMs, dutyCycle.onMs]);
+
   const stopCapture = useCallback(() => {
+    stopDutyCycle();
+
     // Stop the capture interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -77,22 +142,18 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
     capturingRef.current = false;
     setStream(null); // Clear stream state
     setIsActive(false);
-  }, []);
+  }, [stopDutyCycle]);
 
   const captureFrame = useCallback(() => {
+    // When OFF, skip capture/encode/send entirely.
+    if (!dutyOnRef.current) return;
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
-
-    console.log(
-      `[useWebcam] captureFrame called - video: ${!!video}, canvas: ${!!canvas}, readyState: ${video?.readyState}`,
-    );
-
     if (!video || !canvas || video.readyState < 2) {
-      console.warn("[useWebcam] Skip frame - video not ready");
       return;
     }
     if (capturingRef.current) {
-      console.warn("[useWebcam] Skip frame - previous capture in progress");
       return; // Previous capture still in flight
     }
 
@@ -100,14 +161,12 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
 
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      console.error("[useWebcam] Failed to get canvas context");
       capturingRef.current = false;
       return;
     }
 
     try {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      console.log("[useWebcam] Frame drawn to canvas");
     } catch (err) {
       console.error("[useWebcam] Error drawing to canvas:", err);
       capturingRef.current = false;
@@ -118,18 +177,13 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
       (blob) => {
         capturingRef.current = false;
         if (!blob) {
-          console.error("[useWebcam] Failed to create blob");
           return;
         }
-
-        console.log(`[useWebcam] Blob created, size: ${blob.size} bytes`);
         const timestampUs = Date.now() * 1000;
         blob.arrayBuffer().then((buffer) => {
           try {
-            // @ts-expect-error — injected by preload
             if (window.wizardAPI?.sendFrame) {
               window.wizardAPI.sendFrame(timestampUs, buffer);
-              console.log(`[useWebcam] Frame sent: ${timestampUs}`);
             } else {
               console.error("[useWebcam] wizardAPI.sendFrame not available");
             }
@@ -146,7 +200,13 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
   const startCapture = useCallback(async () => {
     try {
       setError(null);
-      console.log("[useWebcam] Starting webcam capture...");
+
+      // If already capturing, just restart duty-cycle.
+      if (streamRef.current && intervalRef.current) {
+        startDutyCycle();
+        setIsActive(true);
+        return;
+      }
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -156,8 +216,6 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
         },
         audio: false,
       });
-
-      console.log("[useWebcam] Webcam stream acquired successfully");
       streamRef.current = stream;
       setStream(stream); // Trigger re-render for preview
 
@@ -168,12 +226,17 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
         video.playsInline = true;
         video.muted = true;
         videoRef.current = video;
-        console.log("[useWebcam] Video element created");
       }
 
       videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-      console.log("[useWebcam] Video element playing");
+      try {
+        await videoRef.current.play();
+      } catch (err) {
+        // React.StrictMode + rapid srcObject changes can cause a harmless AbortError.
+        if (!isIgnorablePlayError(err)) {
+          throw err;
+        }
+      }
 
       // Create offscreen canvas for frame extraction
       const canvas = document.createElement("canvas");
@@ -187,7 +250,9 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
         captureFrame();
       }, intervalMs);
 
-      console.log(`[useWebcam] Capture started at ${fps} fps`);
+      // Start duty-cycle after stream/interval are ready.
+      startDutyCycle();
+
       setIsActive(true);
     } catch (err) {
       const message = err instanceof Error
@@ -196,7 +261,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
       setError(message);
       console.error("[useWebcam] Error:", message);
     }
-  }, [width, height, fps, captureFrame]);
+  }, [width, height, fps, captureFrame, startDutyCycle]);
 
   // Auto-start/stop based on `enabled` prop
   useEffect(() => {
@@ -211,6 +276,13 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
+
+  // If duty-cycle timings change while running, reschedule.
+  useEffect(() => {
+    if (!enabled) return;
+    if (!streamRef.current || !intervalRef.current) return;
+    startDutyCycle();
+  }, [enabled, dutyCycle.offMs, dutyCycle.onMs, startDutyCycle]);
 
   return {
     videoRef,

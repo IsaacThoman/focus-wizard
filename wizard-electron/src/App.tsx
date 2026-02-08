@@ -2,14 +2,18 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   type GetProductivityConfidenceRequest,
   getProductivityConfidenceResponseSchema,
+  type GetAttentivenessRequest,
+  getAttentivenessResponseSchema,
 } from "@shared/productivitySchemas";
 import { SpriteManager, SpriteSheet, NumberRenderer } from "./sprites";
 import type { NumberColor } from "./sprites";
 import "./App.css";
 
 const PRODUCTIVITY_ENDPOINT = "http://localhost:8000/getProductivityConfidence";
+const ATTENTIVENESS_ENDPOINT = "http://localhost:8000/getAttentiveness";
 const CANVAS_WIDTH = 80;
 const CANVAS_HEIGHT = 120;
+const HEAD_START_MS = 15_000;
 
 export type WizardEmotion = "happy" | "neutral" | "mad";
 
@@ -56,9 +60,21 @@ function spriteUrl(filename: string): string {
 }
 
 function App() {
-  const [, setProductivityConfidence] = useState<
+  const sessionStartAtRef = useRef<number>(Date.now());
+  const [productivityConfidence, setProductivityConfidence] = useState<
     number | null
   >(null);
+  const [attentiveness, setAttentiveness] = useState<number | null>(null);
+  const [bridgeStatus, setBridgeStatus] = useState<string>("");
+  const productivityConfidenceRef = useRef<number | null>(null);
+  const attentivenessRef = useRef<number | null>(null);
+  const lastConfidenceAtRef = useRef<number>(0);
+  const halfAttentiveSinceRef = useRef<number | null>(null);
+  const latestGazeRef = useRef<{ gaze_x: number; gaze_y: number } | null>(null);
+  const attentivenessInFlightRef = useRef(false);
+  const everSeenFaceRef = useRef(false);
+  const lastFaceSeenAtRef = useRef<number>(0);
+  const awayOverrideRef = useRef(false);
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
   const emotionRef = useRef<WizardEmotion>("happy");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -214,6 +230,63 @@ function App() {
       dismissSpellCast();
     }
   }, [dismissSpellCast])
+
+  const applyEmotionFromSignals = useCallback(() => {
+    const now = Date.now();
+    const conf = productivityConfidenceRef.current;
+    const attn = attentivenessRef.current;
+
+    // Head start: give the user a short grace period at session start.
+    // During this window, don't let any signals force negative emotion.
+    if (now - sessionStartAtRef.current < HEAD_START_MS) {
+      halfAttentiveSinceRef.current = null;
+      setEmotion("happy");
+      return;
+    }
+
+    // Away override: if the user is gone, always be mad.
+    if (awayOverrideRef.current) {
+      setEmotion("mad");
+      return;
+    }
+
+    // Attentiveness override rules
+    if (attn === 0) {
+      setEmotion("mad");
+      return;
+    }
+
+    if (attn === 0.5) {
+      if (halfAttentiveSinceRef.current === null) {
+        halfAttentiveSinceRef.current = now;
+      }
+      if (now - halfAttentiveSinceRef.current >= 4000) {
+        setEmotion("neutral");
+        return;
+      }
+    } else {
+      halfAttentiveSinceRef.current = null;
+    }
+
+    // Prefer confidence if it's recent; otherwise fall back to attentiveness.
+    const confidenceIsFresh = conf !== null && (now - lastConfidenceAtRef.current) < 15000;
+
+    if (confidenceIsFresh) {
+      if (conf >= 0.8) setEmotion("happy");
+      else if (conf >= 0.2) setEmotion("neutral");
+      else setEmotion("mad");
+      return;
+    }
+
+    if (attn === 1) {
+      setEmotion("happy");
+    } else if (attn === 0.5) {
+      // If we're here, it hasn't been 4s yet—don't force neutral early.
+      setEmotion(emotionRef.current);
+    } else if (attn === 0) {
+      setEmotion("mad");
+    }
+  }, []);
 
   // When emotion changes, update the wizard sprite's active row and play poof
   useEffect(() => {
@@ -762,14 +835,10 @@ function App() {
           const confidence = parsed.data.productivityConfidence;
           setProductivityConfidence(confidence);
 
-          // Drive wizard emotion from productivity score
-          if (confidence >= 0.8) {
-            setEmotion("happy");
-          } else if (confidence >= 0.2) {
-            setEmotion("neutral");
-          } else {
-            setEmotion("mad");
-          }
+          productivityConfidenceRef.current = confidence;
+          lastConfidenceAtRef.current = Date.now();
+
+          applyEmotionFromSignals();
         }
       } catch (error) {
         console.error("Failed to submit screenshot:", error);
@@ -789,6 +858,114 @@ function App() {
     };
   }, []);
 
+  // Subscribe to bridge focus + status so we can fetch attentiveness.
+  useEffect(() => {
+    const api = window.wizardAPI;
+    if (!api) return;
+
+    const unsubs = [
+      api.onFocus((data: any) => {
+        const now = Date.now();
+
+        if (data && data.face_detected === true) {
+          everSeenFaceRef.current = true;
+          lastFaceSeenAtRef.current = now;
+          if (awayOverrideRef.current) {
+            awayOverrideRef.current = false;
+            applyEmotionFromSignals();
+          }
+        }
+
+        if (data && typeof data.gaze_x === "number" && typeof data.gaze_y === "number") {
+          latestGazeRef.current = { gaze_x: data.gaze_x, gaze_y: data.gaze_y };
+        }
+      }),
+      api.onStatus((s: string) => {
+        setBridgeStatus(s);
+      }),
+    ];
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, []);
+
+  // Away detection: if no face for >3s => mad; when face returns => clear override.
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      // Give a grace period after start before we can go "away".
+      if (Date.now() - sessionStartAtRef.current < HEAD_START_MS) return;
+      if (!everSeenFaceRef.current) return;
+
+      const elapsedMs = Date.now() - lastFaceSeenAtRef.current;
+      if (elapsedMs > 3000) {
+        if (!awayOverrideRef.current) {
+          awayOverrideRef.current = true;
+          setEmotion("mad");
+        }
+      }
+    }, 250);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  // Fetch attentiveness from Deno every second (independent of screenshot logic)
+  useEffect(() => {
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (attentivenessInFlightRef.current) return;
+
+      const gaze = latestGazeRef.current;
+      if (!gaze) return;
+
+      attentivenessInFlightRef.current = true;
+      try {
+        const payload: GetAttentivenessRequest = {
+          gaze_x: gaze.gaze_x,
+          gaze_y: gaze.gaze_y,
+          bridgeStatus: bridgeStatus || "unknown",
+          capturedAt: new Date().toISOString(),
+        };
+
+        const resp = await fetch(ATTENTIVENESS_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) return;
+
+        const json = await resp.json();
+        const parsed = getAttentivenessResponseSchema.safeParse(json);
+        if (!parsed.success) return;
+
+        if (!cancelled) {
+          setAttentiveness(parsed.data.attentiveness);
+          attentivenessRef.current = parsed.data.attentiveness;
+          applyEmotionFromSignals();
+        }
+      } catch {
+        // ignore - keep last value
+      } finally {
+        attentivenessInFlightRef.current = false;
+      }
+    };
+
+    void tick();
+    const intervalId = window.setInterval(() => {
+      void tick();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [bridgeStatus, applyEmotionFromSignals]);
+
   return (
     <>
       <main className="pixel-stage">
@@ -807,6 +984,14 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
+{/* Uncomment this if you want to debug the confidence monitor and the attentivenes monitor */}
+        {/* <div className="confidence-monitor">
+          Conf: {productivityConfidence === null
+            ? "--"
+            : productivityConfidence.toFixed(2)}
+          {"  "}
+          Attn: {attentiveness === null ? "--" : attentiveness.toFixed(2)}
+        </div> */}
       </main>
     </>
   );

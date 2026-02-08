@@ -58,7 +58,7 @@ function App() {
   const { videoRef, isActive: webcamActive, error: webcamError } = useWebcam({
     width: 640,
     height: 480,
-    fps: 15,
+    fps: 0.5,
     quality: 0.80,
     enabled: isReady,
   });
