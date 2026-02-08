@@ -897,14 +897,14 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
-
-        <div className="confidence-monitor">
+{/* Uncomment this if you want to debug the confidence monitor and the attentivenes monitor */}
+        {/* <div className="confidence-monitor">
           Conf: {productivityConfidence === null
             ? "--"
             : productivityConfidence.toFixed(2)}
           {"  "}
           Attn: {attentiveness === null ? "--" : attentiveness.toFixed(2)}
-        </div>
+        </div> */}
       </main>
     </>
   );
