@@ -6,7 +6,7 @@
  * which writes them to the shared Docker volume.
  */
 
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UseWebcamOptions {
   /** Desired capture width (default: 640) */
@@ -83,7 +83,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
 
     capturingRef.current = true;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) {
       capturingRef.current = false;
       return;
@@ -106,7 +106,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
           }
         });
       },
-      'image/jpeg',
+      "image/jpeg",
       quality,
     );
   }, [quality]);
@@ -132,7 +132,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
       }
 
       // Create offscreen canvas for frame extraction
-      const canvas = document.createElement('canvas');
+      const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
       canvasRef.current = canvas;
@@ -145,10 +145,11 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
 
       setIsActive(true);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to access webcam';
+      const message = err instanceof Error
+        ? err.message
+        : "Failed to access webcam";
       setError(message);
-      console.error('[useWebcam] Error:', message);
+      console.error("[useWebcam] Error:", message);
     }
   }, [width, height, fps, captureFrame]);
 

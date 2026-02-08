@@ -13,9 +13,9 @@
  * The Docker container volume-mounts this directory at /frames.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 export class FrameWriter {
   private readonly frameDir: string;
@@ -23,7 +23,7 @@ export class FrameWriter {
   private active = false;
 
   constructor(frameDir?: string) {
-    this.frameDir = frameDir || path.join(os.tmpdir(), 'focus-wizard-frames');
+    this.frameDir = frameDir || path.join(os.tmpdir(), "focus-wizard-frames");
   }
 
   /** The host directory where frames are written. */
@@ -38,7 +38,7 @@ export class FrameWriter {
    * This path is from inside the Docker container (/frames mount).
    */
   get containerFileStreamPath(): string {
-    return '/frames/frame0000000000000000.jpg';
+    return "/frames/frame0000000000000000.jpg";
   }
 
   /** Total frames written this session. */
@@ -71,7 +71,7 @@ export class FrameWriter {
   writeFrame(timestampUs: number, jpegData: Buffer): void {
     if (!this.active) return;
 
-    const padded = Math.floor(timestampUs).toString().padStart(16, '0');
+    const padded = Math.floor(timestampUs).toString().padStart(16, "0");
     const filename = `frame${padded}.jpg`;
     const filepath = path.join(this.frameDir, filename);
 
@@ -90,8 +90,8 @@ export class FrameWriter {
    */
   writeEndOfStream(): void {
     try {
-      const filepath = path.join(this.frameDir, 'end_of_stream');
-      fs.writeFileSync(filepath, '');
+      const filepath = path.join(this.frameDir, "end_of_stream");
+      fs.writeFileSync(filepath, "");
     } catch {
       // Ignore — directory might already be gone
     }

@@ -4,9 +4,9 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  sendAndConfirmTransaction,
   SystemProgram,
   Transaction,
-  sendAndConfirmTransaction,
 } from "@solana/web3.js";
 
 const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
@@ -90,7 +90,9 @@ export function createWalletRouter(): Router {
   router.post("/connect", async (ctx) => {
     try {
       const body = await ctx.request.body.json();
-      if (typeof body.walletAddress === "string" && body.walletAddress.length > 0) {
+      if (
+        typeof body.walletAddress === "string" && body.walletAddress.length > 0
+      ) {
         connectedWalletAddress = body.walletAddress;
         console.log(`Wallet connected: ${connectedWalletAddress}`);
         ctx.response.body = { ok: true };
@@ -156,7 +158,9 @@ export function createWalletRouter(): Router {
       if (lamportsToSend + MIN_RESERVE > vaultBalance) {
         ctx.response.status = Status.BadRequest;
         ctx.response.body = {
-          error: `Insufficient vault balance. Available: ${((vaultBalance - MIN_RESERVE) / LAMPORTS_PER_SOL).toFixed(6)} SOL`,
+          error: `Insufficient vault balance. Available: ${
+            ((vaultBalance - MIN_RESERVE) / LAMPORTS_PER_SOL).toFixed(6)
+          } SOL`,
         };
         return;
       }

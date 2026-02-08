@@ -6,7 +6,7 @@
  * which writes them to the shared Docker volume.
  */
 
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UseWebcamOptions {
   /** Desired capture width (default: 640) */
@@ -75,39 +75,41 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
 
     canvasRef.current = null;
     capturingRef.current = false;
-    setStream(null);  // Clear stream state
+    setStream(null); // Clear stream state
     setIsActive(false);
   }, []);
 
   const captureFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    
-    console.log(`[useWebcam] captureFrame called - video: ${!!video}, canvas: ${!!canvas}, readyState: ${video?.readyState}`);
-    
+
+    console.log(
+      `[useWebcam] captureFrame called - video: ${!!video}, canvas: ${!!canvas}, readyState: ${video?.readyState}`,
+    );
+
     if (!video || !canvas || video.readyState < 2) {
-      console.warn('[useWebcam] Skip frame - video not ready');
+      console.warn("[useWebcam] Skip frame - video not ready");
       return;
     }
     if (capturingRef.current) {
-      console.warn('[useWebcam] Skip frame - previous capture in progress');
+      console.warn("[useWebcam] Skip frame - previous capture in progress");
       return; // Previous capture still in flight
     }
 
     capturingRef.current = true;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) {
-      console.error('[useWebcam] Failed to get canvas context');
+      console.error("[useWebcam] Failed to get canvas context");
       capturingRef.current = false;
       return;
     }
 
     try {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      console.log('[useWebcam] Frame drawn to canvas');
+      console.log("[useWebcam] Frame drawn to canvas");
     } catch (err) {
-      console.error('[useWebcam] Error drawing to canvas:', err);
+      console.error("[useWebcam] Error drawing to canvas:", err);
       capturingRef.current = false;
       return;
     }
@@ -116,7 +118,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
       (blob) => {
         capturingRef.current = false;
         if (!blob) {
-          console.error('[useWebcam] Failed to create blob');
+          console.error("[useWebcam] Failed to create blob");
           return;
         }
 
@@ -129,14 +131,14 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
               window.wizardAPI.sendFrame(timestampUs, buffer);
               console.log(`[useWebcam] Frame sent: ${timestampUs}`);
             } else {
-              console.error('[useWebcam] wizardAPI.sendFrame not available');
+              console.error("[useWebcam] wizardAPI.sendFrame not available");
             }
           } catch (err) {
-            console.error('[useWebcam] Error sending frame:', err);
+            console.error("[useWebcam] Error sending frame:", err);
           }
         });
       },
-      'image/jpeg',
+      "image/jpeg",
       quality,
     );
   }, [quality]);
@@ -144,7 +146,7 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
   const startCapture = useCallback(async () => {
     try {
       setError(null);
-      console.log('[useWebcam] Starting webcam capture...');
+      console.log("[useWebcam] Starting webcam capture...");
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -155,26 +157,26 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
         audio: false,
       });
 
-      console.log('[useWebcam] Webcam stream acquired successfully');
+      console.log("[useWebcam] Webcam stream acquired successfully");
       streamRef.current = stream;
-      setStream(stream);  // Trigger re-render for preview
+      setStream(stream); // Trigger re-render for preview
 
       // Create video element if it doesn't exist
       if (!videoRef.current) {
-        const video = document.createElement('video');
+        const video = document.createElement("video");
         video.autoplay = true;
         video.playsInline = true;
         video.muted = true;
         videoRef.current = video;
-        console.log('[useWebcam] Video element created');
+        console.log("[useWebcam] Video element created");
       }
 
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
-      console.log('[useWebcam] Video element playing');
+      console.log("[useWebcam] Video element playing");
 
       // Create offscreen canvas for frame extraction
-      const canvas = document.createElement('canvas');
+      const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
       canvasRef.current = canvas;
@@ -188,10 +190,11 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
       console.log(`[useWebcam] Capture started at ${fps} fps`);
       setIsActive(true);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to access webcam';
+      const message = err instanceof Error
+        ? err.message
+        : "Failed to access webcam";
       setError(message);
-      console.error('[useWebcam] Error:', message);
+      console.error("[useWebcam] Error:", message);
     }
   }, [width, height, fps, captureFrame]);
 

@@ -1,9 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useWebcam } from './hooks/useWebcam';
-import './App.css';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useWebcam } from "./hooks/useWebcam";
+import "./App.css";
 
 interface FocusData {
-  state: 'focused' | 'distracted' | 'drowsy' | 'stressed' | 'away' | 'talking' | 'unknown';
+  state:
+    | "focused"
+    | "distracted"
+    | "drowsy"
+    | "stressed"
+    | "away"
+    | "talking"
+    | "unknown";
   focus_score: number;
   face_detected: boolean;
   is_talking: boolean;
@@ -17,31 +24,31 @@ interface FocusData {
 }
 
 const STATE_EMOJI: Record<string, string> = {
-  focused: '🎯',
-  distracted: '👀',
-  drowsy: '😴',
-  stressed: '😰',
-  away: '🚶',
-  talking: '🗣️',
-  unknown: '❓',
+  focused: "🎯",
+  distracted: "👀",
+  drowsy: "😴",
+  stressed: "😰",
+  away: "🚶",
+  talking: "🗣️",
+  unknown: "❓",
 };
 
 const STATE_COLOR: Record<string, string> = {
-  focused: '#22c55e',
-  distracted: '#f59e0b',
-  drowsy: '#8b5cf6',
-  stressed: '#ef4444',
-  away: '#6b7280',
-  talking: '#3b82f6',
-  unknown: '#9ca3af',
+  focused: "#22c55e",
+  distracted: "#f59e0b",
+  drowsy: "#8b5cf6",
+  stressed: "#ef4444",
+  away: "#6b7280",
+  talking: "#3b82f6",
+  unknown: "#9ca3af",
 };
 
 function App() {
   const [focusData, setFocusData] = useState<FocusData | null>(null);
-  const [status, setStatus] = useState('Waiting for bridge...');
+  const [status, setStatus] = useState("Waiting for bridge...");
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState("");
   const [showSetup, setShowSetup] = useState(false);
   const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -67,7 +74,7 @@ function App() {
     // @ts-expect-error — injected by preload
     const api = window.focusWizard;
     if (!api) {
-      setError('Focus Wizard API not available (not running in Electron?)');
+      setError("Focus Wizard API not available (not running in Electron?)");
       return;
     }
 
@@ -75,7 +82,7 @@ function App() {
     api.checkDocker().then(({ available }: { available: boolean }) => {
       setDockerAvailable(available);
       if (!available) {
-        setError('Docker is not running. Please start Docker Desktop.');
+        setError("Docker is not running. Please start Docker Desktop.");
       }
     });
 
@@ -85,13 +92,16 @@ function App() {
       api.onReady(() => {
         setIsReady(true);
         setIsStarting(false);
-        setStatus('Bridge is running — analyzing webcam feed');
+        setStatus("Bridge is running — analyzing webcam feed");
         setError(null);
       }),
       api.onError((msg: string) => {
         setError(msg);
         setIsStarting(false);
-        if (msg.includes('No API key') || msg.includes('Could not find') || msg.includes('Docker')) {
+        if (
+          msg.includes("No API key") || msg.includes("Could not find") ||
+          msg.includes("Docker")
+        ) {
           setShowSetup(true);
         }
       }),
@@ -119,7 +129,7 @@ function App() {
 
     setError(null);
     setIsStarting(true);
-    setStatus('Starting (building Docker image if needed)...');
+    setStatus("Starting (building Docker image if needed)...");
     try {
       await api.startBridge(apiKey || undefined);
       setShowSetup(false);
@@ -130,14 +140,14 @@ function App() {
   }, [apiKey]);
 
   const scorePercent = focusData ? Math.round(focusData.focus_score * 100) : 0;
-  const stateLabel = focusData?.state ?? 'unknown';
+  const stateLabel = focusData?.state ?? "unknown";
 
   return (
     <div className="app">
       <header className="header">
         <h1>Focus Wizard</h1>
-        <span className={`status-badge ${isReady ? 'online' : 'offline'}`}>
-          {isReady ? '● Connected' : '○ Disconnected'}
+        <span className={`status-badge ${isReady ? "online" : "offline"}`}>
+          {isReady ? "● Connected" : "○ Disconnected"}
         </span>
       </header>
 
@@ -152,19 +162,25 @@ function App() {
           <h2>Setup</h2>
           <p>Enter your Presage API key to start monitoring.</p>
           <p className="hint">
-            Get a free key at{' '}
-            <a href="https://physiology.presagetech.com" target="_blank" rel="noreferrer">
+            Get a free key at{" "}
+            <a
+              href="https://physiology.presagetech.com"
+              target="_blank"
+              rel="noreferrer"
+            >
               physiology.presagetech.com
             </a>
           </p>
 
           {/* Docker status indicator */}
-          <div className={`docker-status ${dockerAvailable ? 'ok' : 'missing'}`}>
+          <div
+            className={`docker-status ${dockerAvailable ? "ok" : "missing"}`}
+          >
             {dockerAvailable === null
-              ? '⏳ Checking Docker...'
+              ? "⏳ Checking Docker..."
               : dockerAvailable
-                ? '🐳 Docker is running'
-                : '⚠️ Docker not found — please start Docker Desktop'}
+              ? "🐳 Docker is running"
+              : "⚠️ Docker not found — please start Docker Desktop"}
           </div>
 
           <input
@@ -172,12 +188,15 @@ function App() {
             placeholder="Your API key..."
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleStart()}
+            onKeyDown={(e) => e.key === "Enter" && handleStart()}
           />
-          <button onClick={handleStart} disabled={!apiKey || !dockerAvailable || isStarting}>
-            {isStarting ? 'Starting...' : 'Start Focus Tracking'}
+          <button
+            onClick={handleStart}
+            disabled={!apiKey || !dockerAvailable || isStarting}
+          >
+            {isStarting ? "Starting..." : "Start Focus Tracking"}
           </button>
-          <p className="hint" style={{ marginTop: '0.75rem' }}>
+          <p className="hint" style={{ marginTop: "0.75rem" }}>
             📷 Camera access will be requested when tracking starts.
           </p>
         </div>
@@ -188,7 +207,7 @@ function App() {
           {/* Hidden video element used by useWebcam for frame capture */}
           <video
             ref={videoRef}
-            style={{ display: 'none' }}
+            style={{ display: "none" }}
             playsInline
             muted
           />
@@ -213,7 +232,12 @@ function App() {
           )}
 
           {/* Focus Score Ring */}
-          <div className="focus-ring" style={{ '--ring-color': STATE_COLOR[stateLabel] } as React.CSSProperties}>
+          <div
+            className="focus-ring"
+            style={{
+              "--ring-color": STATE_COLOR[stateLabel],
+            } as React.CSSProperties}
+          >
             <div className="ring-inner">
               <span className="ring-emoji">{STATE_EMOJI[stateLabel]}</span>
               <span className="ring-score">{scorePercent}%</span>
@@ -226,21 +250,25 @@ function App() {
             <div className="vital-card">
               <span className="vital-icon">💓</span>
               <span className="vital-value">
-                {focusData?.pulse_bpm ? `${focusData.pulse_bpm.toFixed(0)} BPM` : '--'}
+                {focusData?.pulse_bpm
+                  ? `${focusData.pulse_bpm.toFixed(0)} BPM`
+                  : "--"}
               </span>
               <span className="vital-label">Pulse</span>
             </div>
             <div className="vital-card">
               <span className="vital-icon">🫁</span>
               <span className="vital-value">
-                {focusData?.breathing_bpm ? `${focusData.breathing_bpm.toFixed(0)} BPM` : '--'}
+                {focusData?.breathing_bpm
+                  ? `${focusData.breathing_bpm.toFixed(0)} BPM`
+                  : "--"}
               </span>
               <span className="vital-label">Breathing</span>
             </div>
             <div className="vital-card">
               <span className="vital-icon">👁️</span>
               <span className="vital-value">
-                {focusData?.face_detected ? 'Detected' : 'Not Found'}
+                {focusData?.face_detected ? "Detected" : "Not Found"}
               </span>
               <span className="vital-label">Face</span>
             </div>
@@ -248,8 +276,10 @@ function App() {
               <span className="vital-icon">🎯</span>
               <span className="vital-value">
                 {focusData?.has_gaze
-                  ? `${focusData.gaze_x.toFixed(2)}, ${focusData.gaze_y.toFixed(2)}`
-                  : 'Initializing...'}
+                  ? `${focusData.gaze_x.toFixed(2)}, ${
+                    focusData.gaze_y.toFixed(2)
+                  }`
+                  : "Initializing..."}
               </span>
               <span className="vital-label">Gaze (x, y)</span>
             </div>
@@ -257,14 +287,14 @@ function App() {
               <span className="vital-value">
                 {focusData?.blink_rate_per_min != null
                   ? `${focusData.blink_rate_per_min.toFixed(0)}/min`
-                  : '--'}
+                  : "--"}
               </span>
               <span className="vital-label">Blink Rate</span>
             </div>
             <div className="vital-card">
               <span className="vital-icon">🗣️</span>
               <span className="vital-value">
-                {focusData?.is_talking ? 'Yes' : 'No'}
+                {focusData?.is_talking ? "Yes" : "No"}
               </span>
               <span className="vital-label">Talking</span>
             </div>

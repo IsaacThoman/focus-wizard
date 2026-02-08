@@ -6,11 +6,13 @@
  * with the bridge.
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from "electron";
 
 export interface FocusWizardAPI {
   /** Start the C++ bridge (optionally with an API key) */
-  startBridge: (apiKey?: string) => Promise<{ success: boolean; message?: string }>;
+  startBridge: (
+    apiKey?: string,
+  ) => Promise<{ success: boolean; message?: string }>;
   /** Stop the C++ bridge */
   stopBridge: () => Promise<{ success: boolean }>;
   /** Get bridge running status */
@@ -44,29 +46,36 @@ export interface FocusWizardAPI {
 
 function createListener(channel: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (callback: (...args: any[]) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args);
+  return (callback: (...args: any[]) => void): () => void => {
+    const handler = (_event: Electron.IpcRendererEvent, ...args: unknown[]) =>
+      callback(...args);
     ipcRenderer.on(channel, handler);
-    return () => { ipcRenderer.removeListener(channel, handler); };
+    return () => {
+      ipcRenderer.removeListener(channel, handler);
+    };
   };
 }
 
-contextBridge.exposeInMainWorld('focusWizard', {
-  startBridge: (apiKey?: string) => ipcRenderer.invoke('bridge:start', apiKey),
-  stopBridge: () => ipcRenderer.invoke('bridge:stop'),
-  getBridgeStatus: () => ipcRenderer.invoke('bridge:status'),
-  checkDocker: () => ipcRenderer.invoke('docker:check'),
+contextBridge.exposeInMainWorld(
+  "focusWizard",
+  {
+    startBridge: (apiKey?: string) =>
+      ipcRenderer.invoke("bridge:start", apiKey),
+    stopBridge: () => ipcRenderer.invoke("bridge:stop"),
+    getBridgeStatus: () => ipcRenderer.invoke("bridge:status"),
+    checkDocker: () => ipcRenderer.invoke("docker:check"),
 
-  // Fire-and-forget: send frame data to main process for disk write
-  sendFrame: (timestampUs: number, data: ArrayBuffer) => {
-    ipcRenderer.send('frame:data', timestampUs, data);
-  },
+    // Fire-and-forget: send frame data to main process for disk write
+    sendFrame: (timestampUs: number, data: ArrayBuffer) => {
+      ipcRenderer.send("frame:data", timestampUs, data);
+    },
 
-  onFocus: createListener('bridge:focus'),
-  onMetrics: createListener('bridge:metrics'),
-  onEdge: createListener('bridge:edge'),
-  onStatus: createListener('bridge:status'),
-  onError: createListener('bridge:error'),
-  onReady: createListener('bridge:ready'),
-  onClosed: createListener('bridge:closed'),
-} satisfies FocusWizardAPI);
+    onFocus: createListener("bridge:focus"),
+    onMetrics: createListener("bridge:metrics"),
+    onEdge: createListener("bridge:edge"),
+    onStatus: createListener("bridge:status"),
+    onError: createListener("bridge:error"),
+    onReady: createListener("bridge:ready"),
+    onClosed: createListener("bridge:closed"),
+  } satisfies FocusWizardAPI,
+);

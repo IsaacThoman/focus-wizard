@@ -12,20 +12,27 @@
  * Both modes emit JSON Lines on stdout that we parse here.
  */
 
-import { spawn, ChildProcess, execSync } from 'child_process';
-import { EventEmitter } from 'events';
-import * as path from 'path';
-import * as fs from 'fs';
-import { FrameWriter } from './frame-writer';
+import { ChildProcess, execSync, spawn } from "child_process";
+import { EventEmitter } from "events";
+import * as path from "path";
+import * as fs from "fs";
+import { FrameWriter } from "./frame-writer";
 
 /** Message types emitted by the C++ bridge */
 export interface BridgeMessage {
-  type: 'status' | 'ready' | 'edge' | 'metrics' | 'focus' | 'error';
+  type: "status" | "ready" | "edge" | "metrics" | "focus" | "error";
   data: Record<string, unknown>;
 }
 
 export interface FocusData {
-  state: 'focused' | 'distracted' | 'drowsy' | 'stressed' | 'away' | 'talking' | 'unknown';
+  state:
+    | "focused"
+    | "distracted"
+    | "drowsy"
+    | "stressed"
+    | "away"
+    | "talking"
+    | "unknown";
   focus_score: number;
   face_detected: boolean;
   is_talking: boolean;
@@ -42,7 +49,7 @@ export interface BridgeManagerOptions {
   apiKey: string;
 
   /** 'docker' (default) or 'local' (native binary on Ubuntu/macOS) */
-  mode?: 'docker' | 'local';
+  mode?: "docker" | "local";
 
   // ── Docker mode options ──────────────────────────────
   /** Docker image name (default: 'focus-wizard-bridge') */
@@ -69,16 +76,16 @@ export interface BridgeManagerOptions {
 
 export class BridgeManager extends EventEmitter {
   private process: ChildProcess | null = null;
-  private lineBuffer = '';
+  private lineBuffer = "";
   private isReady = false;
   private _frameWriter: FrameWriter | null = null;
   private readonly dockerImage: string;
-  private readonly mode: 'docker' | 'local';
+  private readonly mode: "docker" | "local";
 
   constructor(private options: BridgeManagerOptions) {
     super();
-    this.dockerImage = options.dockerImage || 'focus-wizard-bridge';
-    this.mode = options.mode || 'docker';
+    this.dockerImage = options.dockerImage || "focus-wizard-bridge";
+    this.mode = options.mode || "docker";
   }
 
   /** The FrameWriter instance (Docker mode only). */
@@ -91,7 +98,7 @@ export class BridgeManager extends EventEmitter {
   /** Check if Docker daemon is available. */
   static isDockerAvailable(): boolean {
     try {
-      execSync('docker info', { stdio: 'ignore', timeout: 10000 });
+      execSync("docker info", { stdio: "ignore", timeout: 10000 });
       return true;
     } catch {
       return false;
@@ -102,7 +109,7 @@ export class BridgeManager extends EventEmitter {
   private isImageBuilt(): boolean {
     try {
       execSync(`docker image inspect ${this.dockerImage}`, {
-        stdio: 'ignore',
+        stdio: "ignore",
         timeout: 5000,
       });
       return true;
@@ -115,15 +122,15 @@ export class BridgeManager extends EventEmitter {
   private findProjectRoot(): string {
     let dir = __dirname;
     for (let i = 0; i < 10; i++) {
-      if (fs.existsSync(path.join(dir, 'bridge', 'Dockerfile'))) {
+      if (fs.existsSync(path.join(dir, "bridge", "Dockerfile"))) {
         return dir;
       }
       dir = path.dirname(dir);
     }
     throw new Error(
-      'Could not find project root (looking for bridge/Dockerfile). ' +
-      'Run from the project directory, or build the image manually: ' +
-      'docker build -t focus-wizard-bridge -f bridge/Dockerfile .',
+      "Could not find project root (looking for bridge/Dockerfile). " +
+        "Run from the project directory, or build the image manually: " +
+        "docker build -t focus-wizard-bridge -f bridge/Dockerfile .",
     );
   }
 
@@ -133,49 +140,55 @@ export class BridgeManager extends EventEmitter {
    */
   async buildImage(): Promise<void> {
     if (this.isImageBuilt()) {
-      this.emit('status', 'Docker image already built');
+      this.emit("status", "Docker image already built");
       return;
     }
 
     const projectRoot = this.findProjectRoot();
-    this.emit('status', 'Building Docker image (first run — may take a few minutes)...');
+    this.emit(
+      "status",
+      "Building Docker image (first run — may take a few minutes)...",
+    );
 
     return new Promise<void>((resolve, reject) => {
-      const build = spawn('docker', [
-        'build',
-        '--platform', 'linux/amd64',
-        '-t', this.dockerImage,
-        '-f', path.join(projectRoot, 'bridge', 'Dockerfile'),
+      const build = spawn("docker", [
+        "build",
+        "--platform",
+        "linux/amd64",
+        "-t",
+        this.dockerImage,
+        "-f",
+        path.join(projectRoot, "bridge", "Dockerfile"),
         projectRoot,
       ], {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ["ignore", "pipe", "pipe"],
       });
 
-      build.stdout?.on('data', (chunk: Buffer) => {
+      build.stdout?.on("data", (chunk: Buffer) => {
         const text = chunk.toString().trim();
         if (text) {
           console.log(`[Docker Build] ${text}`);
           // Forward a truncated status to the UI
-          const lastLine = text.split('\n').pop() || text;
-          this.emit('status', `Building: ${lastLine.slice(0, 100)}`);
+          const lastLine = text.split("\n").pop() || text;
+          this.emit("status", `Building: ${lastLine.slice(0, 100)}`);
         }
       });
 
-      build.stderr?.on('data', (chunk: Buffer) => {
+      build.stderr?.on("data", (chunk: Buffer) => {
         const text = chunk.toString().trim();
         if (text) console.log(`[Docker Build] ${text}`);
       });
 
-      build.on('close', (code) => {
+      build.on("close", (code) => {
         if (code === 0) {
-          this.emit('status', 'Docker image built successfully');
+          this.emit("status", "Docker image built successfully");
           resolve();
         } else {
           reject(new Error(`Docker build failed with exit code ${code}`));
         }
       });
 
-      build.on('error', (err) => {
+      build.on("error", (err) => {
         reject(new Error(`Docker build error: ${err.message}`));
       });
     });
@@ -188,8 +201,8 @@ export class BridgeManager extends EventEmitter {
     const candidates = [
       this.options.bridgePath,
       process.env.FOCUS_BRIDGE_PATH,
-      path.join(__dirname, '..', '..', '..', 'bridge', 'build', 'focus_bridge'),
-      path.join(process.resourcesPath || '', 'focus_bridge'),
+      path.join(__dirname, "..", "..", "..", "bridge", "build", "focus_bridge"),
+      path.join(process.resourcesPath || "", "focus_bridge"),
     ].filter(Boolean) as string[];
 
     for (const candidate of candidates) {
@@ -199,9 +212,9 @@ export class BridgeManager extends EventEmitter {
     }
 
     throw new Error(
-      'Could not find focus_bridge binary. ' +
-      'Build it with: cd bridge && mkdir build && cd build && cmake .. && make\n' +
-      `Searched: ${candidates.join(', ')}`,
+      "Could not find focus_bridge binary. " +
+        "Build it with: cd bridge && mkdir build && cd build && cmake .. && make\n" +
+        `Searched: ${candidates.join(", ")}`,
     );
   }
 
@@ -212,10 +225,10 @@ export class BridgeManager extends EventEmitter {
    */
   async start(): Promise<void> {
     if (this.process) {
-      throw new Error('Bridge is already running');
+      throw new Error("Bridge is already running");
     }
 
-    if (this.mode === 'docker') {
+    if (this.mode === "docker") {
       await this.startDocker();
     } else {
       this.startLocal();
@@ -226,8 +239,8 @@ export class BridgeManager extends EventEmitter {
   private async startDocker(): Promise<void> {
     if (!BridgeManager.isDockerAvailable()) {
       throw new Error(
-        'Docker is not installed or not running. ' +
-        'Install Docker Desktop: https://www.docker.com/products/docker-desktop/',
+        "Docker is not installed or not running. " +
+          "Install Docker Desktop: https://www.docker.com/products/docker-desktop/",
       );
     }
 
@@ -236,7 +249,10 @@ export class BridgeManager extends EventEmitter {
 
     // Stop any leftover container from a previous run
     try {
-      execSync(`docker rm -f ${this.dockerImage}`, { stdio: 'ignore', timeout: 5000 });
+      execSync(`docker rm -f ${this.dockerImage}`, {
+        stdio: "ignore",
+        timeout: 5000,
+      });
     } catch { /* no leftover container — fine */ }
 
     // Set up the shared frame directory
@@ -245,29 +261,35 @@ export class BridgeManager extends EventEmitter {
 
     // Assemble docker run arguments
     const args = [
-      'run', '--rm',
-      '--platform', 'linux/amd64',
-      '--name', this.dockerImage,
-      // Explicit DNS ensures fast resolution under x86 emulation on Apple Silicon
-      '--dns', '8.8.8.8',
-      '--dns', '8.8.4.4',
-      '-v', `${this._frameWriter.directory}:/frames`,
-      '-e', `SMARTSPECTRA_API_KEY=${this.options.apiKey}`,
+      "run",
+      "--rm",
+      "--platform",
+      "linux/amd64",
+      "--name",
       this.dockerImage,
-      '--mode=server',
+      // Explicit DNS ensures fast resolution under x86 emulation on Apple Silicon
+      "--dns",
+      "8.8.8.8",
+      "--dns",
+      "8.8.4.4",
+      "-v",
+      `${this._frameWriter.directory}:/frames`,
+      "-e",
+      `SMARTSPECTRA_API_KEY=${this.options.apiKey}`,
+      this.dockerImage,
+      "--mode=server",
       `--file_stream_path=${this._frameWriter.containerFileStreamPath}`,
-      '--erase_read_files=true',
-      '--rescan_delay_ms=5',
-
+      "--erase_read_files=true",
+      "--rescan_delay_ms=5",
     ];
 
     this.addThresholdArgs(args);
 
-    console.log(`[BridgeManager] Starting Docker: docker ${args.join(' ')}`);
-    this.emit('status', 'Starting SmartSpectra container...');
+    console.log(`[BridgeManager] Starting Docker: docker ${args.join(" ")}`);
+    this.emit("status", "Starting SmartSpectra container...");
 
-    this.process = spawn('docker', args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    this.process = spawn("docker", args, {
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     this.attachProcessHandlers();
@@ -292,10 +314,12 @@ export class BridgeManager extends EventEmitter {
 
     this.addThresholdArgs(args);
 
-    console.log(`[BridgeManager] Starting local: ${bridgePath} ${args.join(' ')}`);
+    console.log(
+      `[BridgeManager] Starting local: ${bridgePath} ${args.join(" ")}`,
+    );
 
     this.process = spawn(bridgePath, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
     });
 
@@ -321,29 +345,29 @@ export class BridgeManager extends EventEmitter {
   /** Wire up stdout/stderr/close/error handlers on the spawned process. */
   private attachProcessHandlers(): void {
     // Read JSON Lines from stdout
-    this.process!.stdout?.on('data', (chunk: Buffer) => {
+    this.process!.stdout?.on("data", (chunk: Buffer) => {
       this.lineBuffer += chunk.toString();
       this.processLines();
     });
 
     // Log stderr (SmartSpectra / glog / Docker output)
-    this.process!.stderr?.on('data', (chunk: Buffer) => {
+    this.process!.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString().trim();
       if (text) {
         console.log(`[Bridge stderr] ${text}`);
       }
     });
 
-    this.process!.on('close', (code) => {
+    this.process!.on("close", (code) => {
       console.log(`[BridgeManager] Process exited with code ${code}`);
       this.process = null;
       this.isReady = false;
-      this.emit('close', code);
+      this.emit("close", code);
     });
 
-    this.process!.on('error', (err) => {
+    this.process!.on("error", (err) => {
       console.error(`[BridgeManager] Process error:`, err);
-      this.emit('error', err);
+      this.emit("error", err);
     });
   }
 
@@ -351,9 +375,9 @@ export class BridgeManager extends EventEmitter {
    * Parse complete lines from the buffer.
    */
   private processLines(): void {
-    const lines = this.lineBuffer.split('\n');
+    const lines = this.lineBuffer.split("\n");
     // Keep the last incomplete line in the buffer
-    this.lineBuffer = lines.pop() || '';
+    this.lineBuffer = lines.pop() || "";
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -373,29 +397,32 @@ export class BridgeManager extends EventEmitter {
    */
   private handleMessage(message: BridgeMessage): void {
     switch (message.type) {
-      case 'ready':
+      case "ready":
         this.isReady = true;
-        this.emit('ready');
+        this.emit("ready");
         break;
 
-      case 'focus':
-        this.emit('focus', message.data as unknown as FocusData);
+      case "focus":
+        this.emit("focus", message.data as unknown as FocusData);
         break;
 
-      case 'metrics':
-        this.emit('metrics', message.data);
+      case "metrics":
+        this.emit("metrics", message.data);
         break;
 
-      case 'edge':
-        this.emit('edge', message.data);
+      case "edge":
+        this.emit("edge", message.data);
         break;
 
-      case 'status':
-        this.emit('status', (message.data as { status: string }).status);
+      case "status":
+        this.emit("status", (message.data as { status: string }).status);
         break;
 
-      case 'error':
-        this.emit('bridge-error', (message.data as { message: string }).message);
+      case "error":
+        this.emit(
+          "bridge-error",
+          (message.data as { message: string }).message,
+        );
         break;
 
       default:
@@ -413,13 +440,13 @@ export class BridgeManager extends EventEmitter {
     }
 
     if (this.process) {
-      console.log('[BridgeManager] Stopping...');
+      console.log("[BridgeManager] Stopping...");
 
-      if (this.mode === 'docker') {
+      if (this.mode === "docker") {
         // Docker: `docker stop` sends SIGTERM then SIGKILL after grace period
         try {
           execSync(`docker stop -t 5 ${this.dockerImage}`, {
-            stdio: 'ignore',
+            stdio: "ignore",
             timeout: 10000,
           });
         } catch {
@@ -427,11 +454,11 @@ export class BridgeManager extends EventEmitter {
         }
       } else {
         // Local: send SIGTERM, force-kill after 5s
-        this.process.kill('SIGTERM');
+        this.process.kill("SIGTERM");
         setTimeout(() => {
           if (this.process) {
-            console.log('[BridgeManager] Force killing...');
-            this.process.kill('SIGKILL');
+            console.log("[BridgeManager] Force killing...");
+            this.process.kill("SIGKILL");
           }
         }, 5000);
       }

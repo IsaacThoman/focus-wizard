@@ -1,11 +1,11 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  base: './', // Electron loads from file://
+  base: "./", // Electron loads from file://
   build: {
-    outDir: 'dist',
+    outDir: "dist",
   },
   server: {
     port: 5173,
