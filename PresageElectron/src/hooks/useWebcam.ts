@@ -48,10 +48,10 @@ export function useWebcam(options: UseWebcamOptions = {}): UseWebcamReturn {
   const {
     width = 640,
     height = 480,
-    fps = 10,
+    fps = 3,
     quality = 0.80,
     enabled = false,
-    dutyCycle = { onMs: 3_000, offMs: 5_000 },
+    dutyCycle = { onMs: 3_000, offMs: 0 },
   } = options;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);

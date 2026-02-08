@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWebcam } from "../hooks/useWebcam";
+import {
+  type GetAttentivenessRequest,
+  getAttentivenessResponseSchema,
+} from "@shared/productivitySchemas";
 import "./Settings.css";
 
 interface FocusData {
@@ -54,6 +58,7 @@ interface WalletStatus {
 }
 
 const BACKEND_URL = "http://localhost:8000";
+const ATTENTIVENESS_ENDPOINT = `${BACKEND_URL}/getAttentiveness`;
 
 interface SettingsPageProps {
   mode?: "setup" | "settings";
@@ -83,6 +88,22 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
+
+  const [attentiveness, setAttentiveness] = useState<number | null>(null);
+  const [attentivenessError, setAttentivenessError] = useState<string | null>(
+    null,
+  );
+  const attentivenessInFlightRef = useRef(false);
+  const latestFocusDataRef = useRef<FocusData | null>(null);
+  const latestBridgeStatusRef = useRef<string>(bridgeStatus);
+
+  useEffect(() => {
+    latestFocusDataRef.current = focusData;
+  }, [focusData]);
+
+  useEffect(() => {
+    latestBridgeStatusRef.current = bridgeStatus;
+  }, [bridgeStatus]);
 
   // Webcam capture - start immediately when dev mode is on (before bridge)
   const { stream, isActive: webcamActive, error: webcamError } = useWebcam({
@@ -143,6 +164,76 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   useEffect(() => {
     fetchWalletStatus();
   }, [fetchWalletStatus]);
+
+  // Fetch attentiveness score from Deno backend every 1s (strict interval)
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!settings.devMode) {
+      setAttentiveness(null);
+      setAttentivenessError(null);
+      return;
+    }
+
+    const runOnce = async () => {
+      if (cancelled) return;
+      if (attentivenessInFlightRef.current) return;
+
+      const currentFocusData = latestFocusDataRef.current;
+      if (!currentFocusData) {
+        setAttentiveness(null);
+        return;
+      }
+
+      attentivenessInFlightRef.current = true;
+      try {
+        setAttentivenessError(null);
+        const payload: GetAttentivenessRequest = {
+          gaze_x: currentFocusData.gaze_x,
+          gaze_y: currentFocusData.gaze_y,
+          bridgeStatus: latestBridgeStatusRef.current,
+          capturedAt: new Date().toISOString(),
+        };
+
+        const resp = await fetch(ATTENTIVENESS_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          throw new Error(`Backend error: ${resp.status}`);
+        }
+
+        const json = await resp.json();
+        const parsed = getAttentivenessResponseSchema.safeParse(json);
+        if (!parsed.success) {
+          throw new Error("Invalid backend response");
+        }
+
+        if (!cancelled) setAttentiveness(parsed.data.attentiveness);
+      } catch (e) {
+        if (!cancelled) {
+          setAttentiveness(null);
+          setAttentivenessError(
+            e instanceof Error ? e.message : "Failed to fetch attentiveness",
+          );
+        }
+      } finally {
+        attentivenessInFlightRef.current = false;
+      }
+    };
+
+    void runOnce();
+    const intervalId = window.setInterval(() => {
+      void runOnce();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [settings.devMode]);
 
   // Subscribe to bridge events
   useEffect(() => {
@@ -530,7 +621,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
 
                   {focusData && (
                     <div className="metrics-grid">
-                      <div className="metric-item">
+                      {/* <div className="metric-item">
                         <div className="metric-label">💓 Pulse</div>
                         <div className="metric-value">
                           {focusData.pulse_bpm > 0
@@ -546,7 +637,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                             ? `${focusData.breathing_bpm.toFixed(1)} BPM`
                             : `N/A (${focusData.breathing_bpm})`}
                         </div>
-                      </div>
+                      </div> */}
 
                       <div className="metric-item">
                         <div className="metric-label">👤 Face Found</div>
@@ -575,23 +666,38 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                         </div>
                       </div>
 
-                      <div className="metric-item">
+                      {/* <div className="metric-item">
                         <div className="metric-label">👁️ Blink Rate</div>
                         <div className="metric-value">
                           {focusData.blink_rate_per_min > 0
                             ? `${focusData.blink_rate_per_min.toFixed(1)}/min`
                             : `N/A (${focusData.blink_rate_per_min})`}
                         </div>
-                      </div>
+                      </div> */}
 
                       <div className="metric-item">
                         <div className="metric-label">👀 Gaze</div>
                         <div className="metric-value">
-                          {focusData.has_gaze
-                            ? `(${focusData.gaze_x.toFixed(2)}, ${
-                              focusData.gaze_y.toFixed(2)
-                            })`
-                            : `N/A (${focusData.gaze_x}, ${focusData.gaze_y})`}
+                          {
+                              Number.isFinite(focusData.gaze_x) &&
+                              Number.isFinite(focusData.gaze_y)
+                              ? (focusData.gaze_x > .8 || focusData.gaze_x < -.8 || focusData.gaze_y > .8 || focusData.gaze_y < -.8) ? 
+                                `Dosing off` : `Locked in`
+                            // ? `(${focusData.gaze_x.toFixed(2)}, ${
+                            //   focusData.gaze_y.toFixed(2)
+                            // })`
+                            : ""}
+                        </div>
+                      </div>
+
+                      <div className="metric-item">
+                        <div className="metric-label">🧠 Attentiveness</div>
+                        <div className="metric-value">
+                          {attentivenessError
+                            ? `ERR`
+                            : attentiveness === null
+                            ? "--"
+                            : attentiveness.toFixed(2)}
                         </div>
                       </div>
                     </div>
