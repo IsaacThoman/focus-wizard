@@ -10,6 +10,8 @@ import {
 import type { Rectangle } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import { BridgeManager, FocusData } from "./bridge-manager";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -208,6 +210,7 @@ function createSettingsWindow() {
     title: "Settings - Focus Wizard",
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
+      autoplayPolicy: "no-user-gesture-required",
       // Keep webcam/duty-cycle timers stable even when the window is hidden.
       backgroundThrottling: false,
     },
@@ -253,6 +256,7 @@ function createWindow() {
     icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
+        autoplayPolicy: "no-user-gesture-required",
     },
   });
 
@@ -585,7 +589,16 @@ async function startBridge(): Promise<void> {
       (w): w is Electron.BrowserWindow => Boolean(w && !w.isDestroyed()),
     );
     for (const target of targets) {
-      target.webContents.send(channel, ...args);
+      try {
+        target.webContents.send(channel, ...args);
+      } catch (err) {
+        // Can happen during hot reload when the renderer frame is already disposed.
+        // Avoid spamming the console and keep the main process healthy.
+        if (VITE_DEV_SERVER_URL) {
+          continue;
+        }
+        console.warn("[Main] Failed to broadcast IPC:", channel, err);
+      }
     }
   };
 
@@ -700,6 +713,159 @@ ipcMain.handle("focus-wizard:open-wallet-page", () => {
   shell.openExternal("http://localhost:8000/wallet");
 });
 
+// ── ElevenLabs TTS (wizard voice) ─────────────────────────
+
+type ElevenLabsSpeakRequest = {
+  text: string;
+  /** Optional overrides; env vars are used by default */
+  voiceId?: string;
+  modelId?: string;
+};
+
+ipcMain.handle(
+  "tts:elevenlabs-speak",
+  async (_event, req: ElevenLabsSpeakRequest) => {
+    try {
+      const startedAt = Date.now();
+      const apiKey = process.env.ELEVENLABS_API_KEY || "";
+      let voiceId = req.voiceId || process.env.ELEVENLABS_VOICE_ID || "";
+      const modelId =
+        req.modelId || process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
+
+      const text = String(req?.text || "").trim();
+
+      console.log(
+        `[TTS] request len=${text.length} voice=${voiceId || "(auto)"} model=${modelId}`,
+      );
+
+      if (!apiKey) {
+        return {
+          ok: false,
+          error:
+            "Missing ELEVENLABS_API_KEY. Set it in your environment (.env is supported).",
+        } as const;
+      }
+
+      if (!text) {
+        return { ok: false, error: "No text provided." } as const;
+      }
+
+      // If voiceId isn't configured, pick the first available voice from the account.
+      if (!voiceId) {
+        const voicesResp = await fetch("https://api.elevenlabs.io/v1/voices", {
+          method: "GET",
+          headers: {
+            "xi-api-key": apiKey,
+            Accept: "application/json",
+          },
+        });
+        if (!voicesResp.ok) {
+          const errText = await voicesResp.text().catch(() => "");
+          return {
+            ok: false,
+            error: `ElevenLabs voices error (${voicesResp.status}): ${
+              errText || voicesResp.statusText
+            }`,
+          } as const;
+        }
+        const voicesJson = (await voicesResp.json().catch(() => null)) as any;
+        const first = Array.isArray(voicesJson?.voices)
+          ? voicesJson.voices[0]
+          : null;
+        const inferred = typeof first?.voice_id === "string" ? first.voice_id : "";
+        if (!inferred) {
+          return {
+            ok: false,
+            error:
+              "No ElevenLabs voices found for this API key. Create a voice (or set ELEVENLABS_VOICE_ID).",
+          } as const;
+        }
+        voiceId = inferred;
+      }
+
+      // Cache by (voice, model, text)
+      const cacheKey = crypto
+        .createHash("sha256")
+        .update(`${voiceId}|${modelId}|${text}`)
+        .digest("hex");
+
+      const cacheDir = path.join(app.getPath("userData"), "tts-cache");
+      const mp3Path = path.join(cacheDir, `${cacheKey}.mp3`);
+
+      await fs.mkdir(cacheDir, { recursive: true });
+
+      // If we already have it, just return the URL.
+      try {
+        await fs.access(mp3Path);
+        console.log("[TTS] cache hit", mp3Path);
+        const cached = await fs.readFile(mp3Path);
+        return {
+          ok: true,
+          mimeType: "audio/mpeg",
+          audio: new Uint8Array(cached),
+        } as const;
+      } catch {
+        // Cache miss; continue.
+      }
+
+      const endpoint = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+
+      if (typeof fetch !== "function") {
+        return {
+          ok: false,
+          error:
+            "fetch() is not available in the Electron main process. Upgrade Electron/Node or add a fetch polyfill.",
+        } as const;
+      }
+
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": apiKey,
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text,
+          model_id: modelId,
+          voice_settings: {
+            stability: 0.45,
+            similarity_boost: 0.8,
+            style: 0.2,
+            use_speaker_boost: true,
+          },
+        }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        return {
+          ok: false,
+          error: `ElevenLabs error (${resp.status}): ${errText || resp.statusText}`,
+        } as const;
+      }
+
+      const arrayBuffer = await resp.arrayBuffer();
+      const audioBuf = Buffer.from(arrayBuffer);
+
+      await fs.writeFile(mp3Path, audioBuf);
+
+      console.log(
+        `[TTS] wrote ${audioBuf.length} bytes in ${Date.now() - startedAt}ms`,
+      );
+
+      return {
+        ok: true,
+        mimeType: "audio/mpeg",
+        audio: new Uint8Array(audioBuf),
+      } as const;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[TTS] ElevenLabs speak failed:", err);
+      return { ok: false, error: msg } as const;
+    }
+  },
+);
 ipcMain.handle("focus-wizard:trigger-spell", () => {
   createSpellOverlayWindow();
 });

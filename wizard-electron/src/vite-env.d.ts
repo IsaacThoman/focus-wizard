@@ -8,6 +8,13 @@ interface Window {
     quitApp: () => Promise<void>;
     hideWindow: () => Promise<void>;
 
+    speak: (
+      text: string,
+    ) => Promise<
+      | { ok: true; mimeType?: string; audio: Uint8Array }
+      | { ok: false; error: string }
+    >;
+
     startBridge: (apiKey?: string) => Promise<unknown>;
     stopBridge: () => Promise<unknown>;
     getBridgeStatus: () => Promise<{ running: boolean; status?: string }>

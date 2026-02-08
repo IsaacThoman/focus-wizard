@@ -50,6 +50,13 @@ contextBridge.exposeInMainWorld("wizardAPI", {
   hideWindow: () =>
     ipcRenderer.invoke("focus-wizard:hide-window") as Promise<void>,
 
+  // ElevenLabs TTS (main process holds the API key)
+  speak: (text: string) =>
+    ipcRenderer.invoke("tts:elevenlabs-speak", { text }) as Promise<
+      | { ok: true; mimeType?: string; audio: Uint8Array }
+      | { ok: false; error: string }
+    >,
+
   // Bridge API
   startBridge: (apiKey?: string) => ipcRenderer.invoke("bridge:start", apiKey),
   stopBridge: () => ipcRenderer.invoke("bridge:stop"),

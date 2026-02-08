@@ -61,10 +61,10 @@ function spriteUrl(filename: string): string {
 
 function App() {
   const sessionStartAtRef = useRef<number>(Date.now());
-  const [productivityConfidence, setProductivityConfidence] = useState<
+  const [, setProductivityConfidence] = useState<
     number | null
   >(null);
-  const [attentiveness, setAttentiveness] = useState<number | null>(null);
+  const [, setAttentiveness] = useState<number | null>(null);
   const [bridgeStatus, setBridgeStatus] = useState<string>("");
   const productivityConfidenceRef = useRef<number | null>(null);
   const attentivenessRef = useRef<number | null>(null);
@@ -77,6 +77,8 @@ function App() {
   const awayOverrideRef = useRef(false);
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
   const emotionRef = useRef<WizardEmotion>("happy");
+  const lastAngrySpokenAtRef = useRef<number>(0);
+  const angryAudioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenshotInFlightRef = useRef(false);
   const spriteManagerRef = useRef<SpriteManager | null>(null);
@@ -284,6 +286,164 @@ function App() {
     }
   }, []);
 
+  const buildAngrySpeechText = useCallback((): string => {
+    const now = Date.now();
+
+    const distraction = (() => {
+      if (awayOverrideRef.current) return "vanishing";
+      const attn = attentivenessRef.current;
+      const conf = productivityConfidenceRef.current;
+
+      if (attn === 0) return "wandering eyes";
+      if (attn === 0.5) return "daydreaming";
+      if (conf !== null && conf < 0.2) return "that shiny side-quest";
+      return "distractions";
+    })();
+
+    const sayings = [
+      `On ${distraction} again, are we? Back to the task.`,
+      "You must return to your duties.",
+      "Focus, apprentice. One minute of effort—now.",
+      `Enough dalliance with ${distraction}. Begin.`,
+      "Eyes on the work. The spell fails when you wander.",
+
+      "By the ancient stopwatch—commit to the next step.",
+      "No more side-quests. One task. One breath. Go.",
+      `I sense ${distraction} in the air. Dispel it.`,
+      "Gather your will. Restore your focus.",
+      "Return to the page. The work awaits your hand.",
+
+      "A wizard’s power is attention. Spend it wisely.",
+      "Choose the smallest next action and cast it.",
+      "Silence the noise. Summon the work.",
+      "Not later. Not after. Now.",
+      `Banish ${distraction}. The ritual continues.`,
+
+      "You are not lost—merely off-course. Correct it.",
+      "One minute of discipline. Then another.",
+      "Steady hands. Clear mind. Begin again.",
+      "Back to the quest log: the task in front of you.",
+      `Ah. ${distraction}. A classic trap. Step away from it.`,
+
+      "Refocus: read one line, write one line.",
+      "Attend to the work as if it were a spell circle.",
+      "Hold. Breathe. Continue.",
+      "This is the moment you get it done.",
+      "Return to the workbench. Craft your progress.",
+
+      "Cast: Concentration. Duration: until finished.",
+      "Your wand is steady. Your mind should match.",
+      "Let the distractions pass like harmless ghosts.",
+      "One more paragraph. One more commit. One more step.",
+      "Close the portal to chaos. Open the notebook.",
+      "The spellbook is open. Write the next rune.",
+    ];
+
+    // Stable-ish rotation so it doesn't repeat the same line every time.
+    const idx = Math.floor(now / 10_000) % sayings.length;
+    const base = sayings[idx] || sayings[0];
+
+    // const suffix =
+    //   ps.enabled && ps.isRunning && !ps.isPaused && ps.mode === "work"
+    //     ? ` ${timeStr} remaining.`
+    //     : "";
+
+    return (base).slice(0, 280);
+  }, []);
+
+  const speakAngryNudge = useCallback(async () => {
+    const api = window.wizardAPI;
+    if (!api?.speak) return;
+
+    const text = buildAngrySpeechText();
+    if (!text) return;
+
+    console.log("[TTS] requesting speech:", text);
+    const result = await api.speak(text);
+    if (!result.ok) {
+      console.warn("[TTS] speak failed:", result.error);
+      return;
+    }
+
+    try {
+      // Stop any previous utterance.
+      angryAudioRef.current?.pause();
+      angryAudioRef.current = null;
+
+      // Preferred: main process returns a file:// URL to a cached MP3.
+      // Fallback: if an older implementation returns raw bytes, play via Blob.
+      let audio: HTMLAudioElement;
+      let blobUrl: string | null = null;
+
+      if (typeof (result as any).url === "string") {
+        audio = new Audio((result as any).url);
+      } else if ((result as any).audio != null) {
+        const raw: unknown = (result as any).audio;
+
+        const toBytes = (value: unknown): Uint8Array | null => {
+          if (value instanceof Uint8Array) return value;
+          if (value instanceof ArrayBuffer) return new Uint8Array(value);
+
+          // Some serializers turn Buffer into { type: 'Buffer', data: number[] }
+          if (
+            typeof value === "object" &&
+            value !== null &&
+            (value as any).type === "Buffer" &&
+            Array.isArray((value as any).data)
+          ) {
+            return Uint8Array.from((value as any).data);
+          }
+
+          if (Array.isArray(value) && value.every((n) => typeof n === "number")) {
+            return Uint8Array.from(value);
+          }
+
+          // ArrayBuffer views (DataView, etc.)
+          if (ArrayBuffer.isView(value)) {
+            const v = value as ArrayBufferView;
+            return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+          }
+
+          return null;
+        };
+
+        const bytes = toBytes(raw);
+        if (!bytes) {
+          console.warn("[TTS] speak returned ok but audio was unrecognized", raw);
+          return;
+        }
+
+        // Copy to a new Uint8Array so it's backed by a normal ArrayBuffer.
+        const audioBytes = new Uint8Array(bytes.byteLength);
+        audioBytes.set(bytes);
+        const blob = new Blob([audioBytes], {
+          type: (result as any).mimeType || "audio/mpeg",
+        });
+        blobUrl = URL.createObjectURL(blob);
+        audio = new Audio(blobUrl);
+      } else {
+        console.warn("[TTS] speak returned ok but no playable payload", result);
+        return;
+      }
+
+      audio.preload = "auto";
+      audio.volume = 1;
+      audio.muted = false;
+      audio.oncanplay = () => console.log("[TTS] canplay");
+      audio.onended = () => {
+        console.log("[TTS] ended");
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+      };
+      audio.onerror = () => console.warn("[TTS] media error", audio.error);
+      angryAudioRef.current = audio;
+      audio.load();
+      await audio.play();
+      console.log("[TTS] playing");
+    } catch (e) {
+      console.warn("[TTS] audio playback failed:", e);
+    }
+  }, [buildAngrySpeechText]);
+
   // When emotion changes, update the wizard sprite's active row and play poof
   useEffect(() => {
     const prevEmotion = emotionRef.current;
@@ -314,8 +474,24 @@ function App() {
         poof.visible = true;
       }
 
+      // Speak a short focus nudge when we transition into angry.
+      if (emotion === "mad") {
+        const now = Date.now();
+        const COOLDOWN_MS = 5_000;
+        if (now - lastAngrySpokenAtRef.current >= COOLDOWN_MS) {
+          lastAngrySpokenAtRef.current = now;
+          void speakAngryNudge();
+        }
+      }
+
+      if (prevEmotion === "mad" && emotion !== "mad") {
+        tryDismissSpell();
+      }
     }
-  }, [emotion]);
+      
+    
+    
+  }, [emotion, speakAngryNudge, tryDismissSpell]);
 
   // Load pomodoro settings from localStorage
   const loadPomodoroSettings = useCallback((): PomodoroSettings => {
@@ -1049,15 +1225,16 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
-        {SHOW_DEBUG_MONITORS && (
-          <div className="confidence-monitor">
-            Conf: {productivityConfidence === null
-              ? "--"
-              : productivityConfidence.toFixed(2)}
-            {"  "}
-            Attn: {attentiveness === null ? "--" : attentiveness.toFixed(2)}
-          </div>
-        )}
+{/* Uncomment this if you want to debug the confidence monitor and the attentivenes monitor */}
+
+
+        {/* <div className="confidence-monitor">
+          Conf: {productivityConfidence === null
+            ? "--"
+            : productivityConfidence.toFixed(2)}
+          {"  "}
+          Attn: {attentiveness === null ? "--" : attentiveness.toFixed(2)}
+        </div> */}
       </main>
     </>
   );
