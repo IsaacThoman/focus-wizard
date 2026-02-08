@@ -33,6 +33,7 @@ interface PomodoroSettings {
 interface PomodoroState {
   enabled: boolean
   isRunning: boolean
+  isPaused: boolean
   timeRemaining: number
   mode: 'work' | 'break'
   iteration: number
@@ -66,10 +67,11 @@ function App() {
   const numberRendererRef = useRef<NumberRenderer | null>(null);
   const animFrameRef = useRef<number>(0);
 
-  // Pomodoro timer state
+  // Pomodoro timer state — always starts fresh (no persistence across app restarts)
   const [pomodoroState, setPomodoroState] = useState<PomodoroState>({
     enabled: false,
     isRunning: false,
+    isPaused: false,
     timeRemaining: 25 * 60,
     mode: "work",
     iteration: 1,
@@ -79,7 +81,6 @@ function App() {
   const lastTickRef = useRef<number>(Date.now());
   const pomodoroStateRef = useRef(pomodoroState);
   const cycleCompletionInFlightRef = useRef(false);
-  const prevPomodoroModeRef = useRef<'work' | 'break'>(pomodoroState.mode);
   /** Whether the wizard is currently playing a break transition animation */
   const breakTransitionRef = useRef(false);
 
@@ -97,14 +98,20 @@ function App() {
     pomodoroStateRef.current = pomodoroState;
   }, [pomodoroState]);
 
-  // Detect work/break mode transitions and play break animations
-  useEffect(() => {
-    const prevMode = prevPomodoroModeRef.current;
-    const newMode = pomodoroState.mode;
-    prevPomodoroModeRef.current = newMode;
+  // Track whether the wizard should be sleeping (break, paused, inactive, or completed)
+  const prevShouldSleepRef = useRef(false);
 
-    if (prevMode === newMode) return;
-    if (!pomodoroState.enabled) return;
+  // Determine if wizard should be sleeping: break mode, paused, not running, or not enabled
+  const shouldWizardSleep = pomodoroState.enabled
+    ? (pomodoroState.mode === "break" || pomodoroState.isPaused || !pomodoroState.isRunning)
+    : true; // Always sleep when pomodoro is not enabled
+
+  // Detect sleep state transitions and play sleep/wake animations
+  useEffect(() => {
+    const wasSleeping = prevShouldSleepRef.current;
+    prevShouldSleepRef.current = shouldWizardSleep;
+
+    if (wasSleeping === shouldWizardSleep) return;
 
     const manager = spriteManagerRef.current;
     if (!manager) return;
@@ -113,11 +120,11 @@ function App() {
 
     const wand = manager.get("wand");
 
-    if (newMode === "break") {
+    if (shouldWizardSleep) {
       // Hide wand while sleeping
       if (wand && wand.kind === "animated") wand.visible = false;
 
-      // Entering break: play "fall asleep" row once, then loop "sleeping"
+      // Entering sleep: play "fall asleep" row once, then loop "sleeping"
       breakTransitionRef.current = true;
       wizard.row = WIZARD_ROW_FALL_ASLEEP;
       wizard.reverse = false;
@@ -137,7 +144,7 @@ function App() {
         breakTransitionRef.current = false;
       };
     } else {
-      // Leaving break (back to work): play "fall asleep" row in reverse (wake up),
+      // Waking up: play "fall asleep" row in reverse (wake up),
       // then return to the current emotion row
       breakTransitionRef.current = true;
       wizard.row = WIZARD_ROW_FALL_ASLEEP;
@@ -162,7 +169,7 @@ function App() {
         breakTransitionRef.current = false;
       };
     }
-  }, [pomodoroState.mode, pomodoroState.enabled]);
+  }, [shouldWizardSleep]);
 
   const handleWandAreaClick = () => {
     window.focusWizard?.openSettings();
@@ -175,12 +182,12 @@ function App() {
     const manager = spriteManagerRef.current;
     if (!manager) return;
 
-    // Don't change wizard row during break mode or break transitions
-    const isInBreak = pomodoroStateRef.current.enabled && pomodoroStateRef.current.mode === "break";
+    // Don't change wizard row during sleep or transitions
+    const isSleeping = prevShouldSleepRef.current;
     const isTransitioning = breakTransitionRef.current;
 
     const wizard = manager.get("wizard");
-    if (wizard && wizard.kind === "animated" && !isInBreak && !isTransitioning) {
+    if (wizard && wizard.kind === "animated" && !isSleeping && !isTransitioning) {
       wizard.row = EMOTION_ROW[emotion];
     }
 
@@ -266,7 +273,8 @@ function App() {
     }
   }, [])
 
-  // Handle timer tick - counts down when happy/neutral, up when mad
+  // Handle timer tick - counts down when happy/neutral, up when mad (work mode only)
+  // During break mode, always counts down regardless of emotion
   const handleTimerTick = useCallback(() => {
     const now = Date.now();
     const elapsed = Math.floor((now - lastTickRef.current) / 1000);
@@ -277,28 +285,38 @@ function App() {
     const currentEmotion = emotionRef.current;
 
     setPomodoroState((prev) => {
-      if (!prev.enabled || !prev.isRunning) return prev;
+      if (!prev.enabled || !prev.isRunning || prev.isPaused) return prev;
 
       let newTimeRemaining = prev.timeRemaining;
 
-      // Count down when happy/neutral, count up when mad (penalty)
-      if (currentEmotion === "happy" || currentEmotion === "neutral") {
+      if (prev.mode === "break") {
+        // During break, always count down - user should rest freely
         newTimeRemaining = Math.max(0, prev.timeRemaining - elapsed);
       } else {
-        // When mad, add time (penalty)
-        const workMinutes = loadPomodoroSettings().pomodoroWorkMinutes;
-        const maxPenalty = workMinutes * 60; // Cap at work session length
-        newTimeRemaining = Math.min(maxPenalty, prev.timeRemaining + elapsed);
+        // During work: count down when happy/neutral, count up when mad (penalty)
+        if (currentEmotion === "happy" || currentEmotion === "neutral") {
+          newTimeRemaining = Math.max(0, prev.timeRemaining - elapsed);
+        } else {
+          // When mad, add time (penalty)
+          const workMinutes = loadPomodoroSettings().pomodoroWorkMinutes;
+          const maxPenalty = workMinutes * 60; // Cap at work session length
+          newTimeRemaining = Math.min(maxPenalty, prev.timeRemaining + elapsed);
+        }
       }
 
-      // Check if timer completed
-      if (newTimeRemaining === 0 && currentEmotion !== "mad") {
+      // Check if timer completed (reached zero)
+      if (newTimeRemaining === 0) {
+        // During work mode, don't complete if user is currently "mad" 
+        // (they need to get back on task first)
+        if (prev.mode === "work" && currentEmotion === "mad") {
+          const newState = { ...prev, timeRemaining: newTimeRemaining };
+          savePomodoroState(newState);
+          return newState;
+        }
+
         // Switch modes
         const newMode = prev.mode === "work" ? "break" : "work";
         const settings = loadPomodoroSettings();
-        const newTime = newMode === "work"
-          ? settings.pomodoroWorkMinutes * 60
-          : settings.pomodoroBreakMinutes * 60;
 
         // If we just finished a break, increment iteration
         const newIteration = prev.mode === "break"
@@ -315,6 +333,7 @@ function App() {
           const doneState: PomodoroState = {
             ...prev,
             isRunning: false,
+            isPaused: false,
             timeRemaining: 0,
             mode: "work",
             iteration: prev.totalIterations,
@@ -322,6 +341,12 @@ function App() {
           savePomodoroState(doneState);
           return doneState;
         }
+
+        // If we just finished the last work session, go to break
+        // but if we just finished the last break, we already handled it above
+        const newTime = newMode === "work"
+          ? settings.pomodoroWorkMinutes * 60
+          : settings.pomodoroBreakMinutes * 60;
 
         const newState: PomodoroState = {
           ...prev,
@@ -345,50 +370,20 @@ function App() {
     handleTimerTickRef.current = handleTimerTick;
   }, [handleTimerTick]);
 
-  // Initialize pomodoro state from localStorage on mount (runs once)
+  // Initialize pomodoro state on mount — always starts fresh, no persistence
   useEffect(() => {
     const settings = loadPomodoroSettings();
-    const savedState = localStorage.getItem("focus-wizard-pomodoro-status");
-
-    if (savedState && settings.pomodoroEnabled) {
-      try {
-        const parsed = JSON.parse(savedState);
-        const restoredMode = parsed.mode ?? "work";
-        // Reset timeRemaining to the full duration on app launch instead of
-        // restoring the persisted value — the countdown should not survive
-        // an app restart.
-        const freshTime = restoredMode === "work"
-          ? settings.pomodoroWorkMinutes * 60
-          : settings.pomodoroBreakMinutes * 60;
-        setPomodoroState({
-          enabled: settings.pomodoroEnabled,
-          isRunning: parsed.isRunning ?? false,
-          timeRemaining: freshTime,
-          mode: restoredMode,
-          iteration: parsed.iteration ?? 1,
-          totalIterations: settings.pomodoroIterations,
-        });
-      } catch (e) {
-        console.error("Failed to parse saved pomodoro state:", e);
-        setPomodoroState({
-          enabled: settings.pomodoroEnabled,
-          isRunning: settings.pomodoroEnabled,
-          timeRemaining: settings.pomodoroWorkMinutes * 60,
-          mode: "work",
-          iteration: 1,
-          totalIterations: settings.pomodoroIterations,
-        });
-      }
-    } else {
-      setPomodoroState({
-        enabled: settings.pomodoroEnabled,
-        isRunning: settings.pomodoroEnabled,
-        timeRemaining: settings.pomodoroWorkMinutes * 60,
-        mode: "work",
-        iteration: 1,
-        totalIterations: settings.pomodoroIterations,
-      });
-    }
+    const freshState: PomodoroState = {
+      enabled: false,
+      isRunning: false,
+      isPaused: false,
+      timeRemaining: settings.pomodoroWorkMinutes * 60,
+      mode: "work",
+      iteration: 1,
+      totalIterations: settings.pomodoroIterations,
+    };
+    setPomodoroState(freshState);
+    savePomodoroState(freshState);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -408,21 +403,37 @@ function App() {
     };
   }, []);
 
-  // Listen for settings changes from storage events
+  // Listen for settings changes and pomodoro control actions from storage events
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "focus-wizard-settings" && e.newValue) {
         try {
           const settings = JSON.parse(e.newValue);
           setPomodoroState((prev) => {
+            // If disabling, stop everything
+            if (!settings.pomodoroEnabled) {
+              const newState: PomodoroState = {
+                ...prev,
+                enabled: false,
+                isRunning: false,
+                isPaused: false,
+                timeRemaining: 0,
+                mode: "work",
+                iteration: 1,
+              };
+              savePomodoroState(newState);
+              return newState;
+            }
+
             const newState: PomodoroState = {
               ...prev,
               enabled: settings.pomodoroEnabled ?? prev.enabled,
               totalIterations: settings.pomodoroIterations ?? prev.totalIterations,
             };
-            // If enabling and wasn't enabled before, reset
+            // If enabling and wasn't enabled before, start fresh
             if (settings.pomodoroEnabled && !prev.enabled) {
               newState.isRunning = true;
+              newState.isPaused = false;
               newState.timeRemaining = (settings.pomodoroWorkMinutes ?? 25) * 60;
               newState.mode = "work";
               newState.iteration = 1;
@@ -432,6 +443,24 @@ function App() {
           });
         } catch (err) {
           console.error("Failed to parse settings update:", err);
+        }
+      }
+
+      // Handle pomodoro control actions from settings window
+      if (e.key === "focus-wizard-pomodoro-status" && e.newValue) {
+        try {
+          const status = JSON.parse(e.newValue);
+          setPomodoroState((prev) => {
+            // Accept the state from settings window for control actions
+            // (pause, resume, restart, start, stop)
+            const newState: PomodoroState = {
+              ...prev,
+              ...status,
+            };
+            return newState;
+          });
+        } catch (err) {
+          console.error("Failed to parse pomodoro status update:", err);
         }
       }
     };
@@ -481,11 +510,12 @@ function App() {
         const wizardSheet = new SpriteSheet(wizardImg, 80, 128);
         const wizX = Math.floor((CANVAS_WIDTH - 80) / 2);
         const wizY = CANVAS_HEIGHT - 128;
+        // Start wizard in sleeping state since pomodoro starts inactive
         manager.addAnimated("wizard", wizardSheet, wizX, wizY, {
           fps: 5,
           loop: true,
           playing: true,
-          row: EMOTION_ROW[emotion],
+          row: WIZARD_ROW_SLEEPING,
           z: 1,
         });
 
@@ -501,6 +531,7 @@ function App() {
           fps: 2,
           loop: true,
           playing: true,
+          visible: false, // Start hidden since wizard starts sleeping
           row: 0,
           z: 2,
         });
