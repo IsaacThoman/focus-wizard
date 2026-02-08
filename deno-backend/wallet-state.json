@@ -1,6 +1,6 @@
 {
-  "vaultBalance": 0.001,
-  "earnedBalance": 0,
+  "vaultBalance": 0,
+  "earnedBalance": 0.001,
   "rewardPerCycle": 0.01,
-  "totalCyclesCompleted": 0
+  "totalCyclesCompleted": 1
 }

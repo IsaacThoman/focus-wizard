@@ -13,6 +13,7 @@ const PRODUCTIVITY_ENDPOINT = "http://localhost:8000/getProductivityConfidence";
 const ATTENTIVENESS_ENDPOINT = "http://localhost:8000/getAttentiveness";
 const CANVAS_WIDTH = 80;
 const CANVAS_HEIGHT = 120;
+const HEAD_START_MS = 15_000;
 
 export type WizardEmotion = "happy" | "neutral" | "mad";
 
@@ -54,6 +55,7 @@ function spriteUrl(filename: string): string {
 }
 
 function App() {
+  const sessionStartAtRef = useRef<number>(Date.now());
   const [productivityConfidence, setProductivityConfidence] = useState<
     number | null
   >(null);
@@ -112,6 +114,14 @@ function App() {
     const now = Date.now();
     const conf = productivityConfidenceRef.current;
     const attn = attentivenessRef.current;
+
+    // Head start: give the user a short grace period at session start.
+    // During this window, don't let any signals force negative emotion.
+    if (now - sessionStartAtRef.current < HEAD_START_MS) {
+      halfAttentiveSinceRef.current = null;
+      setEmotion("happy");
+      return;
+    }
 
     // Away override: if the user is gone, always be mad.
     if (awayOverrideRef.current) {
@@ -686,6 +696,8 @@ function App() {
   // Away detection: if no face for >3s => mad; when face returns => clear override.
   useEffect(() => {
     const intervalId = window.setInterval(() => {
+      // Give a grace period after start before we can go "away".
+      if (Date.now() - sessionStartAtRef.current < HEAD_START_MS) return;
       if (!everSeenFaceRef.current) return;
 
       const elapsedMs = Date.now() - lastFaceSeenAtRef.current;
