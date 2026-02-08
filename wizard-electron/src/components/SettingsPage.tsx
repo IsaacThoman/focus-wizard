@@ -32,7 +32,6 @@ export interface SettingsData {
   pomodoroWorkMinutes: number;
   pomodoroBreakMinutes: number;
   pomodoroIterations: number;
-  employerCode: string;
   devMode: boolean;
   positivePrompt: string;
   negativePrompt: string;
@@ -44,7 +43,6 @@ const DEFAULT_SETTINGS: SettingsData = {
   pomodoroWorkMinutes: 25,
   pomodoroBreakMinutes: 5,
   pomodoroIterations: 4,
-  employerCode: "",
   devMode: false,
   positivePrompt: "",
   negativePrompt: "",
@@ -513,10 +511,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     }
   };
 
-  const handleEmployerCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, "").slice(0, 6);
-    setSettings({ ...settings, employerCode: value });
-  };
 
   const handleWorkMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -858,22 +852,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
             </div>
           </section>
 
-          <section className="settings-section">
-            <h3>Employer Link</h3>
-            <div className="settings-field">
-              <label htmlFor="employer-code">6-Digit Verification Code</label>
-              <input
-                id="employer-code"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                placeholder="000000"
-                value={settings.employerCode}
-                onChange={handleEmployerCodeChange}
-              />
-            </div>
-          </section>
 
           <section className="settings-section">
             <div className="settings-section-header">
