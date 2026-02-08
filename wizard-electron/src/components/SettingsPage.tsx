@@ -61,7 +61,17 @@ interface SettingsPageProps {
 
 export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const isSetup = mode === "setup";
-  const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<SettingsData>(() => {
+    const savedSettings = localStorage.getItem("focus-wizard-settings");
+    if (!savedSettings) return DEFAULT_SETTINGS;
+    try {
+      const parsed = JSON.parse(savedSettings);
+      return { ...DEFAULT_SETTINGS, ...parsed };
+    } catch (e) {
+      console.error("Failed to parse saved settings:", e);
+      return DEFAULT_SETTINGS;
+    }
+  });
   const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([]);
 
   const [focusData, setFocusData] = useState<FocusData | null>(null);
@@ -90,6 +100,15 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
       console.log("[SettingsPage] Connecting stream to preview video");
       videoEl.srcObject = stream;
       videoEl.play().catch((err) => {
+        // Can happen during rapid remounts/navigation (e.g. React.StrictMode)
+        if (
+          err?.name === "AbortError" ||
+          String(err?.message || "").includes(
+            "The play() request was interrupted by a new load request",
+          )
+        ) {
+          return;
+        }
         console.error("[SettingsPage] Failed to play video:", err);
       });
     }
@@ -120,30 +139,19 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     window.focusWizard?.openWalletPage();
   };
 
-  // Load settings from localStorage on mount
+  // Fetch wallet status on mount
   useEffect(() => {
-    const savedSettings = localStorage.getItem("focus-wizard-settings");
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings);
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
-      } catch (e) {
-        console.error("Failed to parse saved settings:", e);
-      }
-    }
-    // Also fetch wallet status on mount
     fetchWalletStatus();
   }, [fetchWalletStatus]);
 
   // Subscribe to bridge events
   useEffect(() => {
-    // @ts-expect-error — injected by preload
     const api = window.wizardAPI;
     if (!api) return;
 
     // Check initial bridge status on mount
     api.getBridgeStatus().then(
-      (status: { running: boolean; status: string }) => {
+      (status: { running: boolean; status?: string }) => {
         if (status.running) {
           setBridgeReady(true);
           setBridgeStatus(status.status || "Bridge ready");
@@ -209,7 +217,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
 
   // Start/stop bridge based on dev mode and webcam status
   useEffect(() => {
-    // @ts-expect-error — injected by preload
     const api = window.wizardAPI;
     if (!api) {
       console.error("[SettingsPage] wizardAPI not available");
@@ -253,7 +260,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const handleSave = () => {
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
     // Hide window instead of closing to keep monitoring active
-    // @ts-expect-error — injected by preload
     if (window.wizardAPI?.hideWindow) {
       window.wizardAPI.hideWindow();
     } else {
@@ -264,18 +270,17 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const handleStart = async () => {
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
     await window.focusWizard?.startSession();
-    window.close();
-  };
 
-  const handleCancel = () => {
-    // Hide window instead of closing to keep monitoring active
-    // @ts-expect-error — injected by preload
+    // Hide window instead of closing so biometric monitoring can keep running
+    // after initial setup.
     if (window.wizardAPI?.hideWindow) {
       window.wizardAPI.hideWindow();
     } else {
       window.close();
     }
   };
+
+
 
   const handleQuitApp = () => {
     window.focusWizard?.quitApp();
@@ -708,12 +713,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
             )
             : (
               <>
-                <button
-                  className="settings-button secondary"
-                  onClick={handleCancel}
-                >
-                  Cancel
-                </button>
+
                 <button
                   className="settings-button primary"
                   onClick={handleSave}

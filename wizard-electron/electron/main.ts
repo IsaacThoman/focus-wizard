@@ -36,9 +36,38 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let win: BrowserWindow | null = null;
 let settingsWin: BrowserWindow | null = null;
 let bridge: BridgeManager | null = null;
+let isQuitting = false;
+let settingsMode: "setup" | "settings" = "settings";
+
+function loadSettings(mode: "setup" | "settings") {
+  settingsMode = mode;
+  if (!settingsWin) return;
+
+  settingsWin.setTitle(
+    mode === "setup" ? "Setup - Focus Wizard" : "Settings - Focus Wizard",
+  );
+
+  if (VITE_DEV_SERVER_URL) {
+    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html?mode=${mode}`);
+  } else {
+    settingsWin.loadFile(path.join(RENDERER_DIST, "settings.html"), {
+      query: { mode },
+    });
+  }
+}
 
 function createSettingsWindow(mode: "setup" | "settings" = "settings") {
   if (settingsWin) {
+    if (settingsWin.isMinimized()) {
+      settingsWin.restore();
+    }
+
+    // If we're re-opening from setup, switch to the normal settings mode.
+    if (settingsMode !== mode) {
+      loadSettings(mode);
+    }
+
+    settingsWin.show();
     settingsWin.focus();
     return;
   }
@@ -54,20 +83,23 @@ function createSettingsWindow(mode: "setup" | "settings" = "settings") {
       : "Settings - Focus Wizard",
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
+      // Keep webcam/duty-cycle timers stable even when the window is hidden.
+      backgroundThrottling: false,
     },
+  });
+
+  // Treat window close as "hide" so monitoring can continue.
+  settingsWin.on("close", (e) => {
+    if (isQuitting) return;
+    e.preventDefault();
+    settingsWin?.hide();
   });
 
   settingsWin.on("closed", () => {
     settingsWin = null;
   });
 
-  if (VITE_DEV_SERVER_URL) {
-    settingsWin.loadURL(`${VITE_DEV_SERVER_URL}settings.html?mode=${mode}`);
-  } else {
-    settingsWin.loadFile(path.join(RENDERER_DIST, "settings.html"), {
-      query: { mode },
-    });
-  }
+  loadSettings(mode);
 }
 
 function createWindow() {
@@ -273,12 +305,12 @@ function startScreenDiffMonitor() {
   }, 1_000);
 }
 app.on("before-quit", () => {
+  isQuitting = true;
   bridge?.stop();
 });
 
 app.whenReady().then(() => {
   createSettingsWindow("setup");
-  startScreenDiffMonitor();
 });
 
 ipcMain.handle("focus-wizard:capture-page-screenshot", async () => {
@@ -319,6 +351,7 @@ ipcMain.handle("focus-wizard:open-settings", () => {
 ipcMain.handle("focus-wizard:start-session", () => {
   if (!win) {
     createWindow();
+    startScreenDiffMonitor();
   } else {
     win.focus();
   }
@@ -419,7 +452,7 @@ ipcMain.handle("docker:check", async () => {
   return { available: BridgeManager.isDockerAvailable() };
 });
 
-ipcMain.on("frame:data", (_event, timestampUs: number, data: Buffer) => {
+ipcMain.on("frame:data", (_event, timestampUs: number, data: unknown) => {
   const frameWriter = bridge?.frameWriter;
   if (!frameWriter) {
     console.warn("[Main] Received frame but frame writer not initialized");
@@ -427,9 +460,13 @@ ipcMain.on("frame:data", (_event, timestampUs: number, data: Buffer) => {
   }
 
   try {
-    frameWriter.writeFrame(timestampUs, Buffer.from(data));
+    const jpegBuffer = Buffer.isBuffer(data)
+      ? data
+      : Buffer.from(data as ArrayBuffer);
+
+    frameWriter.writeFrame(timestampUs, jpegBuffer);
     console.log(
-      `[Main] Frame written: ${timestampUs}, size: ${data.length} bytes, count: ${frameWriter.count}`,
+      `[Main] Frame written: ${timestampUs}, size: ${jpegBuffer.length} bytes, count: ${frameWriter.count}`,
     );
   } catch (err) {
     console.error("[Main] Error writing frame:", err);
