@@ -575,6 +575,242 @@
   margin-top: 16px;
 }
 
+/* Wallet Section - Beautiful Vault/Earned Display */
+.wallet-section {
+  background: linear-gradient(135deg, rgba(45, 27, 78, 0.8) 0%, rgba(26, 13, 46, 0.9) 100%);
+  border: 3px solid #8b6bb7;
+  padding: 20px;
+}
+
+.wallet-section h3 {
+  margin: 0 0 20px 0;
+  font-size: 20px;
+  text-align: center;
+  color: #f4d58d;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.wallet-balance-card {
+  border: 3px solid;
+  padding: 16px;
+  margin-bottom: 16px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.wallet-balance-card.earned {
+  background: linear-gradient(135deg, rgba(74, 140, 74, 0.2) 0%, rgba(107, 183, 107, 0.1) 100%);
+  border-color: #6bb76b;
+  box-shadow: 
+    0 0 0 2px #1a0d2e,
+    0 4px 0 0 rgba(107, 183, 107, 0.4),
+    inset 0 0 20px rgba(107, 183, 107, 0.1);
+}
+
+.wallet-balance-card.earned::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent 40%,
+    rgba(107, 183, 107, 0.1) 50%,
+    transparent 60%
+  );
+  animation: shimmer 3s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%) translateY(-100%); }
+  100% { transform: translateX(100%) translateY(100%); }
+}
+
+.wallet-balance-card.vault {
+  background: linear-gradient(135deg, rgba(139, 107, 183, 0.2) 0%, rgba(45, 27, 78, 0.1) 100%);
+  border-color: #8b6bb7;
+  box-shadow: 
+    0 0 0 2px #1a0d2e,
+    0 4px 0 0 rgba(139, 107, 183, 0.4),
+    inset 0 0 20px rgba(139, 107, 183, 0.1);
+}
+
+.wallet-balance-label {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.wallet-balance-card.earned .wallet-balance-label {
+  color: #a8f4a8;
+}
+
+.wallet-balance-card.vault .wallet-balance-label {
+  color: #d4a5ff;
+}
+
+.wallet-balance-amount {
+  font-family: monospace;
+  font-size: 32px;
+  font-weight: bold;
+  color: #f4d58d;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+  line-height: 1;
+}
+
+.wallet-balance-amount.vault-amount {
+  font-size: 24px;
+  color: #b8a8d8;
+}
+
+.sol-unit {
+  font-size: 16px;
+  color: #8b6bb7;
+  font-weight: normal;
+}
+
+.wallet-balance-usd {
+  font-family: monospace;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.wallet-balance-card.earned .wallet-balance-usd {
+  color: #6bb76b;
+}
+
+.wallet-balance-card.vault .wallet-balance-usd {
+  color: #a98ccc;
+}
+
+.wallet-balance-usd.vault-usd {
+  color: #a98ccc;
+}
+
+.wallet-unlock-info {
+  font-family: monospace;
+  font-size: 12px;
+  color: #d4a5ff;
+  margin-top: 12px;
+  padding: 8px;
+  background: rgba(26, 13, 46, 0.5);
+  border: 2px solid #5c4a7a;
+  border-radius: 0;
+}
+
+.wallet-stats-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.wallet-stat {
+  flex: 1;
+  background: rgba(13, 6, 32, 0.6);
+  border: 2px solid #5c4a7a;
+  padding: 12px;
+  text-align: center;
+}
+
+.wallet-stat-label {
+  display: block;
+  font-family: monospace;
+  font-size: 10px;
+  color: #a98ccc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.wallet-stat-value {
+  display: block;
+  font-family: monospace;
+  font-size: 16px;
+  font-weight: bold;
+  color: #f4d58d;
+}
+
+.wallet-stat-value.cycles {
+  color: #6bb76b;
+  font-size: 20px;
+}
+
+.wallet-stat-usd {
+  display: block;
+  font-family: monospace;
+  font-size: 11px;
+  color: #8b6bb7;
+}
+
+.wallet-info-row.compact {
+  margin-bottom: 8px;
+}
+
+.wallet-info-row.compact label {
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.wallet-config-section {
+  background: rgba(13, 6, 32, 0.6);
+  border: 2px solid #5c4a7a;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.wallet-config-label {
+  display: block;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #d4a5ff;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.wallet-config-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wallet-config-input {
+  width: 100px !important;
+  padding: 8px 12px !important;
+  font-size: 18px !important;
+  text-align: center;
+}
+
+.wallet-config-unit {
+  font-family: monospace;
+  font-size: 14px;
+  color: #f4d58d;
+  font-weight: bold;
+}
+
+.wallet-config-usd {
+  font-family: monospace;
+  font-size: 12px;
+  color: #6bb76b;
+  margin-left: auto;
+}
+
+.wallet-config-hint {
+  font-family: monospace;
+  font-size: 11px;
+  color: #8b6bb7;
+  margin: 8px 0 0 0;
+  font-style: italic;
+}
+
 /* Pomodoro Section Header with Toggle */
 .settings-section-header {
   display: flex;

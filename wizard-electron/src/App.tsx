@@ -85,6 +85,7 @@ function App() {
   const pomodoroIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTickRef = useRef<number>(Date.now());
   const pomodoroStateRef = useRef(pomodoroState);
+  const cycleCompletionInFlightRef = useRef(false);
 
   const handleWandHover = (hovering: boolean) => {
     const manager = spriteManagerRef.current;
@@ -198,6 +199,48 @@ function App() {
     localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(state));
   }, [])
 
+  // Complete a pomodoro cycle - notify backend to move SOL from vault to earned
+  const completePomodoroCycle = useCallback(async () => {
+    // Guard against duplicate fires (React strict mode, rapid timer ticks)
+    if (cycleCompletionInFlightRef.current) {
+      console.log("Cycle completion already in flight, skipping duplicate");
+      return;
+    }
+    cycleCompletionInFlightRef.current = true;
+
+    try {
+      const response = await fetch("http://localhost:8000/wallet/complete-cycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        console.warn(
+          `Cycle completion failed (${response.status}):`,
+          errData.error || "Unknown error"
+        );
+        return;
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log(
+          `Pomodoro cycle completed! Earned ${data.rewardAmount} SOL` +
+          (data.earnedUsd != null ? ` ($${data.earnedUsd.toFixed(2)} USD)` : "") +
+          `. Total earned: ${(data.earnedBalance ?? 0).toFixed(4)} SOL`
+        );
+      } else {
+        console.log("Cycle completed but no SOL moved:", data.error || "Unknown reason");
+      }
+    } catch (error) {
+      console.error("Failed to complete pomodoro cycle:", error);
+    } finally {
+      cycleCompletionInFlightRef.current = false;
+    }
+  }, [])
+
   // Handle timer tick - counts down when happy/neutral, up when mad
   const handleTimerTick = useCallback(() => {
     const now = Date.now();
@@ -236,6 +279,11 @@ function App() {
         const newIteration = prev.mode === "break"
           ? prev.iteration + 1
           : prev.iteration;
+
+        // When a work session completes successfully, move SOL from vault to earned
+        if (prev.mode === "work") {
+          void completePomodoroCycle();
+        }
 
         // Stop if all iterations are complete (finished last break)
         if (newIteration > prev.totalIterations) {
