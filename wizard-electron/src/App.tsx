@@ -14,7 +14,6 @@ const ATTENTIVENESS_ENDPOINT = "http://localhost:8000/getAttentiveness";
 const CANVAS_WIDTH = 80;
 const CANVAS_HEIGHT = 120;
 const HEAD_START_MS = 15_000;
-const SHOW_DEBUG_MONITORS = false;
 
 export type WizardEmotion = "happy" | "neutral" | "mad";
 
@@ -228,6 +227,10 @@ function App() {
       }
     }
   }, [])
+
+  const tryDismissSpell = useCallback(() => {
+    dismissSpellCast();
+  }, [dismissSpellCast]);
 
   const applyEmotionFromSignals = useCallback(() => {
     const now = Date.now();
