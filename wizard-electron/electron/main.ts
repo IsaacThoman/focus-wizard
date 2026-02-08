@@ -190,18 +190,21 @@ function loadSettings() {
   }
 }
 
-function createSettingsWindow() {
+function createSettingsWindow(shouldShow: boolean = true) {
   if (settingsWin) {
-    if (settingsWin.isMinimized()) {
-      settingsWin.restore();
+    if (shouldShow) {
+      if (settingsWin.isMinimized()) {
+        settingsWin.restore();
+      }
+      settingsWin.show();
+      settingsWin.focus();
     }
-
-    settingsWin.show();
-    settingsWin.focus();
     return;
   }
 
+  // Create hidden by default; show explicitly when requested.
   settingsWin = new BrowserWindow({
+    show: false,
     width: 500,
     height: 700,
     resizable: false,
@@ -228,6 +231,14 @@ function createSettingsWindow() {
   });
 
   loadSettings();
+
+  if (shouldShow) {
+    settingsWin.once("ready-to-show", () => {
+      if (!settingsWin || settingsWin.isDestroyed()) return;
+      settingsWin.show();
+      settingsWin.focus();
+    });
+  }
 }
 
 function createWindow() {
@@ -294,7 +305,7 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
     startScreenDiffMonitor();
-    createSettingsWindow();
+    createSettingsWindow(false);
   }
 });
 
@@ -523,7 +534,8 @@ app.whenReady().then(() => {
   // Launch wizard + settings together on startup.
   createWindow();
   startScreenDiffMonitor();
-  createSettingsWindow();
+  // Create settings window hidden so the wizard pops up first.
+  createSettingsWindow(false);
 });
 
 ipcMain.handle("focus-wizard:capture-page-screenshot", async () => {
@@ -560,7 +572,7 @@ ipcMain.handle("focus-wizard:capture-page-screenshot", async () => {
 });
 
 ipcMain.handle("focus-wizard:open-settings", () => {
-  createSettingsWindow();
+  createSettingsWindow(true);
 });
 
 ipcMain.handle("focus-wizard:start-session", () => {
