@@ -84,3 +84,5 @@ deno-backend/.env_gem
 
 # ── Solana Vault Key ─────────────────────────────────
 deno-backend/vault-keypair.json
+
+deno-backend/wallet-state.json

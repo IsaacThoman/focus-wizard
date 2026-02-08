@@ -15,6 +15,8 @@ export interface AnimatedSprite {
   playing: boolean;
   /** Loop the animation */
   loop: boolean;
+  /** Play the animation in reverse (columns go from framesPerRow-1 down to 0) */
+  reverse: boolean;
   /** Active row to animate across (0-based). Changes which horizontal strip is used. */
   row: number;
   /** Optional z-index for draw ordering (lower draws first) */
@@ -59,6 +61,7 @@ export class SpriteManager {
       fps?: number;
       loop?: boolean;
       playing?: boolean;
+      reverse?: boolean;
       row?: number;
       z?: number;
       visible?: boolean;
@@ -76,6 +79,7 @@ export class SpriteManager {
       _elapsed: 0,
       playing: options.playing ?? true,
       loop: options.loop ?? true,
+      reverse: options.reverse ?? false,
       row: options.row ?? 0,
       z: options.z ?? 0,
       visible: options.visible ?? true,
@@ -126,17 +130,31 @@ export class SpriteManager {
 
       while (sprite._elapsed >= frameDuration) {
         sprite._elapsed -= frameDuration;
-        const nextCol = sprite._col + 1;
 
-        if (nextCol >= sprite.sheet.framesPerRow) {
-          if (sprite.loop) {
-            sprite._col = 0;
+        if (sprite.reverse) {
+          const prevCol = sprite._col - 1;
+          if (prevCol < 0) {
+            if (sprite.loop) {
+              sprite._col = sprite.sheet.framesPerRow - 1;
+            } else {
+              sprite.playing = false;
+              sprite.onComplete?.();
+            }
           } else {
-            sprite.playing = false;
-            sprite.onComplete?.();
+            sprite._col = prevCol;
           }
         } else {
-          sprite._col = nextCol;
+          const nextCol = sprite._col + 1;
+          if (nextCol >= sprite.sheet.framesPerRow) {
+            if (sprite.loop) {
+              sprite._col = 0;
+            } else {
+              sprite.playing = false;
+              sprite.onComplete?.();
+            }
+          } else {
+            sprite._col = nextCol;
+          }
         }
       }
     }
