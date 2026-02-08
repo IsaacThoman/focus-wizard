@@ -23,6 +23,49 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   // ...
 })
 
+function createListener(channel: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (callback: (...args: any[]) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args)
+    ipcRenderer.on(channel, handler)
+    return () => { ipcRenderer.removeListener(channel, handler) }
+  }
+}
+
+contextBridge.exposeInMainWorld('wizardAPI', {
+  capturePageScreenshot: () =>
+    ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
+  openSettings: () =>
+    ipcRenderer.invoke('focus-wizard:open-settings') as Promise<void>,
+  startSession: () =>
+    ipcRenderer.invoke('focus-wizard:start-session') as Promise<void>,
+  quitApp: () =>
+    ipcRenderer.invoke('focus-wizard:quit-app') as Promise<void>,
+  hideWindow: () =>
+    ipcRenderer.invoke('focus-wizard:hide-window') as Promise<void>,
+  
+  // Bridge API
+  startBridge: (apiKey?: string) => ipcRenderer.invoke('bridge:start', apiKey),
+  stopBridge: () => ipcRenderer.invoke('bridge:stop'),
+  getBridgeStatus: () => ipcRenderer.invoke('bridge:status'),
+  checkDocker: () => ipcRenderer.invoke('docker:check'),
+  
+  // Send webcam frame to main process
+  sendFrame: (timestampUs: number, data: ArrayBuffer) => {
+    ipcRenderer.send('frame:data', timestampUs, data)
+  },
+  
+  // Bridge event listeners
+  onFocus: createListener('bridge:focus'),
+  onMetrics: createListener('bridge:metrics'),
+  onEdge: createListener('bridge:edge'),
+  onStatus: createListener('bridge:status'),
+  onError: createListener('bridge:error'),
+  onReady: createListener('bridge:ready'),
+  onClosed: createListener('bridge:closed'),
+})
+
+// Backwards compatibility - keep focusWizard for existing code
 contextBridge.exposeInMainWorld('focusWizard', {
   capturePageScreenshot: () =>
     ipcRenderer.invoke('focus-wizard:capture-page-screenshot') as Promise<string>,
@@ -41,4 +84,5 @@ contextBridge.exposeInMainWorld('focusWizard', {
       ipcRenderer.removeListener('focus-wizard:trigger-screenshot', listener)
     }
   },
+  
 })
