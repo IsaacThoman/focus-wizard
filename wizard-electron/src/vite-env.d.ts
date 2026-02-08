@@ -7,5 +7,6 @@ interface Window {
     startSession: () => Promise<void>
     quitApp: () => Promise<void>
     openWalletPage: () => Promise<void>
+    onTriggerScreenshot: (callback: () => void) => () => void
   }
 }

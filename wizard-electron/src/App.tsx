@@ -7,7 +7,6 @@ import { SpriteSheet, SpriteManager } from './sprites'
 import './App.css'
 
 const PRODUCTIVITY_ENDPOINT = 'http://localhost:8000/getProductivityConfidence'
-const SCREENSHOT_INTERVAL_MS = 2_500
 const CANVAS_WIDTH = 80
 const CANVAS_HEIGHT = 120
 
@@ -162,7 +161,8 @@ function App() {
     }
   }, [])
 
-  // Screenshot polling for productivity confidence
+  // Screenshot submission — triggered by main process via IPC when screen
+  // content changes significantly or after an idle timeout.
   useEffect(() => {
     let isMounted = true
 
@@ -215,14 +215,14 @@ function App() {
       }
     }
 
-    void captureAndSubmitScreenshot()
-    const intervalId = setInterval(() => {
+    // Listen for trigger signals from the main process screen-diff monitor
+    const unsubscribe = window.focusWizard?.onTriggerScreenshot(() => {
       void captureAndSubmitScreenshot()
-    }, SCREENSHOT_INTERVAL_MS)
+    })
 
     return () => {
       isMounted = false
-      clearInterval(intervalId)
+      unsubscribe?.()
     }
   }, [])
 
