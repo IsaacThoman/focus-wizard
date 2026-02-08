@@ -897,6 +897,8 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
+{/* Uncomment this if you want to debug the confidence monitor and the attentivenes monitor */}
+
 
         <div className="confidence-monitor">
           Conf: {productivityConfidence === null
