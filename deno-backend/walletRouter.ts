@@ -31,16 +31,39 @@ async function getVaultKeypair(): Promise<Keypair> {
     console.log(
       `Loaded vault keypair: ${vaultKeypair.publicKey.toString()}`,
     );
-  } catch {
-    // Generate a new keypair if none exists
-    vaultKeypair = Keypair.generate();
-    await Deno.writeTextFile(
-      VAULT_KEYPAIR_PATH,
-      JSON.stringify(Array.from(vaultKeypair.secretKey)),
-    );
-    console.log(
-      `Generated new vault keypair: ${vaultKeypair.publicKey.toString()}`,
-    );
+  } catch (e: unknown) {
+    // Only generate a new keypair if the file truly doesn't exist.
+    // Any other error (corrupt JSON, permissions, etc.) should be
+    // surfaced so we never silently lose access to an existing wallet.
+    if (e instanceof Deno.errors.NotFound) {
+      // Double-check the file really isn't there before writing
+      let fileExists = false;
+      try {
+        await Deno.stat(VAULT_KEYPAIR_PATH);
+        fileExists = true;
+      } catch { /* stat failed, file genuinely missing */ }
+
+      if (fileExists) {
+        throw new Error(
+          "vault-keypair.json exists on disk but could not be read. " +
+          "Refusing to overwrite — fix the file manually.",
+        );
+      }
+
+      vaultKeypair = Keypair.generate();
+      await Deno.writeTextFile(
+        VAULT_KEYPAIR_PATH,
+        JSON.stringify(Array.from(vaultKeypair.secretKey)),
+      );
+      console.log(
+        `Generated new vault keypair: ${vaultKeypair.publicKey.toString()}`,
+      );
+    } else {
+      throw new Error(
+        `Failed to load vault-keypair.json (file exists but is unreadable or corrupt). ` +
+        `Fix it manually — refusing to generate a new keypair. Original error: ${e}`,
+      );
+    }
   }
 
   return vaultKeypair;
