@@ -1,14 +1,8 @@
-<<<<<<< HEAD
 import 'dotenv/config'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { BridgeManager, FocusData } from './bridge-manager'
-=======
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell } from 'electron'
-import { fileURLToPath } from 'node:url'
-import path from 'node:path'
->>>>>>> origin/main
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
