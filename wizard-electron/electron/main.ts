@@ -369,13 +369,21 @@ ipcMain.handle("focus-wizard:hide-window", () => {
 async function startBridge(): Promise<void> {
   const apiKey = process.env.SMARTSPECTRA_API_KEY || "";
 
+  const broadcastToWindows = (channel: string, ...args: unknown[]) => {
+    const targets = [win, settingsWin].filter(
+      (w): w is Electron.BrowserWindow => Boolean(w && !w.isDestroyed()),
+    );
+    for (const target of targets) {
+      target.webContents.send(channel, ...args);
+    }
+  };
+
   if (!apiKey) {
     console.warn("[Main] No SMARTSPECTRA_API_KEY set — bridge will not start.");
     console.warn(
       "[Main] Set it in your environment or pass it via the app settings.",
     );
-    // Send error to all windows
-    settingsWin?.webContents.send(
+    broadcastToWindows(
       "bridge:error",
       "No SMARTSPECTRA_API_KEY set. Please configure your API key.",
     );
@@ -386,34 +394,34 @@ async function startBridge(): Promise<void> {
 
   bridge.on("ready", () => {
     console.log("[Main] Bridge is ready!");
-    settingsWin?.webContents.send("bridge:ready");
+    broadcastToWindows("bridge:ready");
   });
 
   bridge.on("focus", (data: FocusData) => {
-    settingsWin?.webContents.send("bridge:focus", data);
+    broadcastToWindows("bridge:focus", data);
   });
 
   bridge.on("metrics", (data: Record<string, unknown>) => {
-    settingsWin?.webContents.send("bridge:metrics", data);
+    broadcastToWindows("bridge:metrics", data);
   });
 
   bridge.on("edge", (data: Record<string, unknown>) => {
-    settingsWin?.webContents.send("bridge:edge", data);
+    broadcastToWindows("bridge:edge", data);
   });
 
   bridge.on("status", (status: string) => {
     console.log(`[Main] Bridge status: ${status}`);
-    settingsWin?.webContents.send("bridge:status", status);
+    broadcastToWindows("bridge:status", status);
   });
 
   bridge.on("bridge-error", (message: string) => {
     console.error(`[Main] Bridge error: ${message}`);
-    settingsWin?.webContents.send("bridge:error", message);
+    broadcastToWindows("bridge:error", message);
   });
 
   bridge.on("close", (code: number) => {
     console.log(`[Main] Bridge exited with code ${code}`);
-    settingsWin?.webContents.send("bridge:closed", code);
+    broadcastToWindows("bridge:closed", code);
   });
 
   try {
@@ -421,7 +429,7 @@ async function startBridge(): Promise<void> {
   } catch (err) {
     console.error("[Main] Failed to start bridge:", err);
     const errorMsg = err instanceof Error ? err.message : String(err);
-    settingsWin?.webContents.send("bridge:error", errorMsg);
+    broadcastToWindows("bridge:error", errorMsg);
   }
 }
 // keep all above
