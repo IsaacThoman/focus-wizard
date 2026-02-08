@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWebcam } from "../hooks/useWebcam";
+import {
+  type GetAttentivenessRequest,
+  getAttentivenessResponseSchema,
+} from "@shared/productivitySchemas";
 import "./Settings.css";
 
 interface FocusData {
@@ -28,7 +32,6 @@ export interface SettingsData {
   pomodoroWorkMinutes: number;
   pomodoroBreakMinutes: number;
   pomodoroIterations: number;
-  employerCode: string;
   devMode: boolean;
   positivePrompt: string;
   negativePrompt: string;
@@ -40,7 +43,6 @@ const DEFAULT_SETTINGS: SettingsData = {
   pomodoroWorkMinutes: 25,
   pomodoroBreakMinutes: 5,
   pomodoroIterations: 4,
-  employerCode: "",
   devMode: false,
   positivePrompt: "",
   negativePrompt: "",
@@ -73,6 +75,7 @@ interface WalletStatus {
 }
 
 const BACKEND_URL = "http://localhost:8000";
+const ATTENTIVENESS_ENDPOINT = `${BACKEND_URL}/getAttentiveness`;
 
 interface SettingsPageProps {
   mode?: "setup" | "settings";
@@ -90,7 +93,17 @@ interface PomodoroStatus {
 
 export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const isSetup = mode === "setup";
-  const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<SettingsData>(() => {
+    const savedSettings = localStorage.getItem("focus-wizard-settings");
+    if (!savedSettings) return DEFAULT_SETTINGS;
+    try {
+      const parsed = JSON.parse(savedSettings);
+      return { ...DEFAULT_SETTINGS, ...parsed };
+    } catch (e) {
+      console.error("Failed to parse saved settings:", e);
+      return DEFAULT_SETTINGS;
+    }
+  });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([]);
 
@@ -104,6 +117,21 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
 
+  const [attentiveness, setAttentiveness] = useState<number | null>(null);
+  const [attentivenessError, setAttentivenessError] = useState<string | null>(
+    null,
+  );
+  const attentivenessInFlightRef = useRef(false);
+  const latestFocusDataRef = useRef<FocusData | null>(null);
+  const latestBridgeStatusRef = useRef<string>(bridgeStatus);
+
+  useEffect(() => {
+    latestFocusDataRef.current = focusData;
+  }, [focusData]);
+
+  useEffect(() => {
+    latestBridgeStatusRef.current = bridgeStatus;
+  }, [bridgeStatus]);
   const [pomodoroStatus, setPomodoroStatus] = useState<PomodoroStatus>({
     enabled: false,
     isRunning: false,
@@ -118,9 +146,10 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const { stream, isActive: webcamActive, error: webcamError } = useWebcam({
     width: 640,
     height: 480,
-    fps: 5, // 5 fps - balance between API usage and face tracking quality
+    fps: 0.5, // 1 frame every 2 seconds
     quality: 0.80,
     enabled: settings.devMode, // Start webcam as soon as dev mode enabled
+    dutyCycle: { onMs: 0, offMs: 0 },
   });
 
   // Connect stream to preview video element
@@ -130,6 +159,15 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
       console.log("[SettingsPage] Connecting stream to preview video");
       videoEl.srcObject = stream;
       videoEl.play().catch((err) => {
+        // Can happen during rapid remounts/navigation (e.g. React.StrictMode)
+        if (
+          err?.name === "AbortError" ||
+          String(err?.message || "").includes(
+            "The play() request was interrupted by a new load request",
+          )
+        ) {
+          return;
+        }
         console.error("[SettingsPage] Failed to play video:", err);
       });
     }
@@ -171,7 +209,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     window.focusWizard?.openWalletPage();
   };
 
-  // Load settings from localStorage on mount
+  // Fetch wallet status on mount
   useEffect(() => {
     const savedSettings = localStorage.getItem("focus-wizard-settings");
     if (savedSettings) {
@@ -230,15 +268,84 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [fetchWalletStatus]);
 
+  // Fetch attentiveness score from Deno backend every 1s (strict interval)
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!settings.devMode) {
+      setAttentiveness(null);
+      setAttentivenessError(null);
+      return;
+    }
+
+    const runOnce = async () => {
+      if (cancelled) return;
+      if (attentivenessInFlightRef.current) return;
+
+      const currentFocusData = latestFocusDataRef.current;
+      if (!currentFocusData) {
+        setAttentiveness(null);
+        return;
+      }
+
+      attentivenessInFlightRef.current = true;
+      try {
+        setAttentivenessError(null);
+        const payload: GetAttentivenessRequest = {
+          gaze_x: currentFocusData.gaze_x,
+          gaze_y: currentFocusData.gaze_y,
+          bridgeStatus: latestBridgeStatusRef.current,
+          capturedAt: new Date().toISOString(),
+        };
+
+        const resp = await fetch(ATTENTIVENESS_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          throw new Error(`Backend error: ${resp.status}`);
+        }
+
+        const json = await resp.json();
+        const parsed = getAttentivenessResponseSchema.safeParse(json);
+        if (!parsed.success) {
+          throw new Error("Invalid backend response");
+        }
+
+        if (!cancelled) setAttentiveness(parsed.data.attentiveness);
+      } catch (e) {
+        if (!cancelled) {
+          setAttentiveness(null);
+          setAttentivenessError(
+            e instanceof Error ? e.message : "Failed to fetch attentiveness",
+          );
+        }
+      } finally {
+        attentivenessInFlightRef.current = false;
+      }
+    };
+
+    void runOnce();
+    const intervalId = window.setInterval(() => {
+      void runOnce();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [settings.devMode]);
+
   // Subscribe to bridge events
   useEffect(() => {
-    // @ts-expect-error — injected by preload
     const api = window.wizardAPI;
     if (!api) return;
 
     // Check initial bridge status on mount
     api.getBridgeStatus().then(
-      (status: { running: boolean; status: string }) => {
+      (status: { running: boolean; status?: string }) => {
         if (status.running) {
           setBridgeReady(true);
           setBridgeStatus(status.status || "Bridge ready");
@@ -304,7 +411,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
 
   // Start/stop bridge based on dev mode and webcam status
   useEffect(() => {
-    // @ts-expect-error — injected by preload
     const api = window.wizardAPI;
     if (!api) {
       console.error("[SettingsPage] wizardAPI not available");
@@ -348,7 +454,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const handleSave = () => {
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
     // Hide window instead of closing to keep monitoring active
-    // @ts-expect-error — injected by preload
     if (window.wizardAPI?.hideWindow) {
       window.wizardAPI.hideWindow();
     } else {
@@ -359,18 +464,17 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const handleStart = async () => {
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
     await window.focusWizard?.startSession();
-    window.close();
-  };
 
-  const handleCancel = () => {
-    // Hide window instead of closing to keep monitoring active
-    // @ts-expect-error — injected by preload
+    // Hide window instead of closing so biometric monitoring can keep running
+    // after initial setup.
     if (window.wizardAPI?.hideWindow) {
       window.wizardAPI.hideWindow();
     } else {
       window.close();
     }
   };
+
+
 
   const handleQuitApp = () => {
     window.focusWizard?.quitApp();
@@ -407,10 +511,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     }
   };
 
-  const handleEmployerCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, "").slice(0, 6);
-    setSettings({ ...settings, employerCode: value });
-  };
 
   const handleWorkMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -752,22 +852,6 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
             </div>
           </section>
 
-          <section className="settings-section">
-            <h3>Employer Link</h3>
-            <div className="settings-field">
-              <label htmlFor="employer-code">6-Digit Verification Code</label>
-              <input
-                id="employer-code"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                placeholder="000000"
-                value={settings.employerCode}
-                onChange={handleEmployerCodeChange}
-              />
-            </div>
-          </section>
 
           <section className="settings-section">
             <div className="settings-section-header">
@@ -823,8 +907,8 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
 
                   {focusData && (
                     <div className="metrics-grid">
-                      <div className="metric-item">
-                        <div className="metric-label">💓 Pulse</div>
+                      {/* <div className="metric-item">
+                        <div className="metric-label">Pulse</div>
                         <div className="metric-value">
                           {focusData.pulse_bpm > 0
                             ? `${focusData.pulse_bpm.toFixed(1)} BPM`
@@ -833,16 +917,16 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">🫁 Breathing</div>
+                        <div className="metric-label">Breathing</div>
                         <div className="metric-value">
                           {focusData.breathing_bpm > 0
                             ? `${focusData.breathing_bpm.toFixed(1)} BPM`
                             : `N/A (${focusData.breathing_bpm})`}
                         </div>
-                      </div>
+                      </div> */}
 
                       <div className="metric-item">
-                        <div className="metric-label">👤 Face Found</div>
+                        <div className="metric-label">Face Found</div>
                         <div className="metric-value">
                           {bridgeStatus === "No faces found."
                             ? "✗ No"
@@ -852,7 +936,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">🚶 Is Away</div>
+                        <div className="metric-label">Is Away</div>
                         <div className="metric-value">
                           {bridgeStatus === "No issues detected."
                             ? "✗ No"
@@ -862,29 +946,44 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">🗣️ Is Talking</div>
+                        <div className="metric-label">Is Talking</div>
                         <div className="metric-value">
                           {focusData.is_talking ? "✓ Yes" : `✗ No`}
                         </div>
                       </div>
 
-                      <div className="metric-item">
-                        <div className="metric-label">👁️ Blink Rate</div>
+                      {/* <div className="metric-item">
+                        <div className="metric-label">Blink Rate</div>
                         <div className="metric-value">
                           {focusData.blink_rate_per_min > 0
                             ? `${focusData.blink_rate_per_min.toFixed(1)}/min`
                             : `N/A (${focusData.blink_rate_per_min})`}
                         </div>
+                      </div> */}
+
+                      <div className="metric-item">
+                        <div className="metric-label">Gaze</div>
+                        <div className="metric-value">
+                          {
+                              Number.isFinite(focusData.gaze_x) &&
+                              Number.isFinite(focusData.gaze_y)
+                              ? (focusData.gaze_x > .8 || focusData.gaze_x < -.8 || focusData.gaze_y > .8 || focusData.gaze_y < -.8) ? 
+                                `Dosing off` : `Locked in`
+                            // ? `(${focusData.gaze_x.toFixed(2)}, ${
+                            //   focusData.gaze_y.toFixed(2)
+                            // })`
+                            : ""}
+                        </div>
                       </div>
 
                       <div className="metric-item">
-                        <div className="metric-label">👀 Gaze</div>
+                        <div className="metric-label">Attentiveness</div>
                         <div className="metric-value">
-                          {focusData.has_gaze
-                            ? `(${focusData.gaze_x.toFixed(2)}, ${
-                              focusData.gaze_y.toFixed(2)
-                            })`
-                            : `N/A (${focusData.gaze_x}, ${focusData.gaze_y})`}
+                          {attentivenessError
+                            ? `ERR`
+                            : attentiveness === null
+                            ? "--"
+                            : attentiveness.toFixed(2)}
                         </div>
                       </div>
                     </div>
@@ -1083,12 +1182,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
             )
             : (
               <>
-                <button
-                  className="settings-button secondary"
-                  onClick={handleCancel}
-                >
-                  Cancel
-                </button>
+
                 <button
                   className="settings-button primary"
                   onClick={handleSave}

@@ -1,10 +1,13 @@
 import { Application, Router, Status } from "@oak/oak";
 import { z } from "zod";
 import {
+  getAttentivenessRequestSchema,
+  getAttentivenessResponseSchema,
   getProductivityConfidenceRequestSchema,
   getProductivityConfidenceResponseSchema,
 } from "../shared/productivitySchemas.ts";
 import { createWalletRouter } from "./walletRouter.ts";
+import { getAttentiveness } from "./attentiveness.ts";
 
 const PORT = 8000;
 const OPENAI_BASE_URL = Deno.env.get("OPENAI_BASE_URL") ??
@@ -132,7 +135,7 @@ async function getConfidenceFromModel(
 
 const router = new Router();
 
-router.post("/getProductivityConfidence", async (ctx) => {
+router.post("/getProductivityConfidence", async (ctx: any) => {
   try {
     const body = await ctx.request.body.json();
     const parsed = getProductivityConfidenceRequestSchema.safeParse(body);
@@ -154,6 +157,40 @@ router.post("/getProductivityConfidence", async (ctx) => {
 
     const responsePayload = getProductivityConfidenceResponseSchema.parse({
       productivityConfidence,
+    });
+
+    ctx.response.status = Status.OK;
+    ctx.response.body = responsePayload;
+  } catch (error) {
+    ctx.response.status = Status.InternalServerError;
+    ctx.response.body = {
+      error: error instanceof Error ? error.message : "Internal server error",
+    };
+  }
+});
+
+router.post("/getAttentiveness", async (ctx: any) => {
+  try {
+    const body = await ctx.request.body.json();
+    const parsed = getAttentivenessRequestSchema.safeParse(body);
+
+    if (!parsed.success) {
+      ctx.response.status = Status.BadRequest;
+      ctx.response.body = {
+        error: "Invalid request body",
+        issues: parsed.error.issues,
+      };
+      return;
+    }
+
+    const attentiveness = getAttentiveness({
+      gaze_x: parsed.data.gaze_x,
+      gaze_y: parsed.data.gaze_y,
+      bridgeStatus: parsed.data.bridgeStatus,
+    });
+
+    const responsePayload = getAttentivenessResponseSchema.parse({
+      attentiveness,
     });
 
     ctx.response.status = Status.OK;
