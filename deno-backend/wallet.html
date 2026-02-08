@@ -318,15 +318,31 @@
           </div>
         </div>
 
-        <!-- Wizard Vault Info -->
+        <!-- Wizard Vault Info - Split Display -->
         <div id="vault-section" class="section hidden">
-          <h2>Wizard Vault</h2>
+          <h2>Focus Vault</h2>
           <div class="wallet-address" id="vault-address"></div>
-          <div class="balance" id="vault-balance">
-            -- <span class="sol-label">SOL</span>
+          
+          <!-- Earned Balance (Available) -->
+          <div class="balance-card earned-card" style="margin-bottom: 12px; padding: 12px; background: rgba(107, 183, 107, 0.1); border: 2px solid #6bb76b;">
+            <div style="font-size: 11px; color: #a8f4a8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">✨ Available to Withdraw</div>
+            <div class="balance" id="earned-balance" style="padding: 4px 0; font-size: 24px;">
+              -- <span class="sol-label">SOL</span>
+            </div>
+            <div id="earned-balance-usd" style="font-size: 12px; color: #6bb76b;">-- USD</div>
           </div>
+          
+          <!-- Vault Balance (Locked) -->
+          <div class="balance-card vault-card" style="padding: 12px; background: rgba(139, 107, 183, 0.1); border: 2px solid #8b6bb7;">
+            <div style="font-size: 11px; color: #d4a5ff; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">🔒 In Vault (Complete cycles to unlock)</div>
+            <div class="balance" id="vault-balance" style="padding: 4px 0; font-size: 20px; color: #b8a8d8;">
+              -- <span class="sol-label">SOL</span>
+            </div>
+            <div id="vault-balance-usd" style="font-size: 12px; color: #a98ccc;">-- USD</div>
+          </div>
+          
           <div class="wizard-vault-info">
-            The wizard vault is managed by the Focus Wizard app
+            Complete pomodoro cycles to move SOL from vault to earned
           </div>
         </div>
 
@@ -345,7 +361,7 @@
               id="tab-withdraw"
               onclick="switchTab('withdraw')"
             >
-              Withdraw
+              Withdraw (Earned)
             </button>
           </div>
 
@@ -381,13 +397,16 @@
                 min="0"
                 step="0.001"
               />
+              <small style="display: block; margin-top: 4px; font-size: 11px; color: #d4a5ff;">
+                Can only withdraw from earned balance (complete pomodoro cycles to earn)
+              </small>
             </div>
             <button
               class="btn btn-secondary"
               onclick="withdrawFromVault()"
               id="withdraw-btn"
             >
-              Withdraw SOL from Wizard
+              Withdraw SOL from Earned
             </button>
           </div>
 
@@ -488,6 +507,9 @@
         );
       }
 
+      // Conversion rate
+      const SOL_TO_USD_RATE = 87.40;
+
       async function loadVaultInfo() {
         try {
           const resp = await fetch(`${BACKEND_URL}/wallet/vault`);
@@ -507,14 +529,34 @@
       }
 
       async function refreshVaultBalance() {
-        if (!vaultAddress) return;
         try {
-          const pubkey = new solanaWeb3.PublicKey(vaultAddress);
-          const lamports = await connection.getBalance(pubkey);
-          const sol = lamports / solanaWeb3.LAMPORTS_PER_SOL;
-          document.getElementById("vault-balance").innerHTML = `${
-            sol.toFixed(4)
+          // Use the status endpoint to get vault/earned split
+          const resp = await fetch(`${BACKEND_URL}/wallet/status`);
+          const data = await resp.json();
+          
+          // Update earned balance (available for withdrawal)
+          document.getElementById("earned-balance").innerHTML = `${
+            data.earnedBalanceSol?.toFixed(4) || "0.0000"
           } <span class="sol-label">SOL</span>`;
+          document.getElementById("earned-balance-usd").textContent = 
+            `≈ $${(data.earnedBalanceSol * SOL_TO_USD_RATE)?.toFixed(2) || "0.00"} USD`;
+          
+          // Update vault balance (locked)
+          document.getElementById("vault-balance").innerHTML = `${
+            data.vaultBalanceSol?.toFixed(4) || "0.0000"
+          } <span class="sol-label">SOL</span>`;
+          document.getElementById("vault-balance-usd").textContent = 
+            `≈ $${(data.vaultBalanceSol * SOL_TO_USD_RATE)?.toFixed(2) || "0.00"} USD`;
+          
+          // Update withdraw button with earned limit
+          const withdrawBtn = document.getElementById("withdraw-btn");
+          if (withdrawBtn && data.earnedBalanceSol <= 0) {
+            withdrawBtn.disabled = true;
+            withdrawBtn.textContent = "No Earned SOL Available";
+          } else if (withdrawBtn) {
+            withdrawBtn.disabled = false;
+            withdrawBtn.textContent = "Withdraw SOL from Earned";
+          }
         } catch (e) {
           console.error("Failed to get vault balance:", e);
         }

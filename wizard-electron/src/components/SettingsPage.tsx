@@ -32,6 +32,7 @@ export interface SettingsData {
   devMode: boolean;
   positivePrompt: string;
   negativePrompt: string;
+  rewardPerCycle: number;  // SOL earned per completed pomodoro cycle
 }
 
 const DEFAULT_SETTINGS: SettingsData = {
@@ -43,6 +44,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   devMode: false,
   positivePrompt: "",
   negativePrompt: "",
+  rewardPerCycle: 0.01,  // Default: 0.01 SOL per cycle
 };
 
 interface ClickSparkle {
@@ -55,8 +57,19 @@ interface ClickSparkle {
 
 interface WalletStatus {
   vaultAddress: string;
-  vaultBalanceSol: number;
+  onChainBalanceSol: number;
+  vaultBalanceSol: number;  // Locked, needs work to unlock
+  earnedBalanceSol: number;  // Available for withdrawal
+  totalBalanceSol: number;
+  earnedBalanceUsd: number;
+  vaultBalanceUsd: number;
+  totalBalanceUsd: number;
+  rewardPerCycle: number;
+  rewardPerCycleUsd: number;
+  totalCyclesCompleted: number;
   connectedWallet: string | null;
+  solToUsdRate: number;
+  discrepancySol?: number;  // Difference between on-chain and tracked balances
 }
 
 const BACKEND_URL = "http://localhost:8000";
@@ -125,6 +138,15 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   useEffect(() => {
     if (!settingsLoaded) return;
     localStorage.setItem("focus-wizard-settings", JSON.stringify(settings));
+    
+    // Sync reward per cycle with backend
+    if (settings.rewardPerCycle >= 0) {
+      fetch(`${BACKEND_URL}/wallet/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rewardPerCycle: settings.rewardPerCycle }),
+      }).catch((e) => console.error("Failed to sync reward config:", e));
+    }
   }, [settings, settingsLoaded]);
 
   const fetchWalletStatus = useCallback(async () => {
@@ -159,6 +181,25 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
       }
     }
     setSettingsLoaded(true);
+    
+    // Load reward per cycle from backend
+    fetch(`${BACKEND_URL}/wallet/config`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (data && typeof data.rewardPerCycle === "number") {
+          setSettings((prev) => ({
+            ...prev,
+            rewardPerCycle: data.rewardPerCycle,
+          }));
+        }
+      })
+      .catch((e) => {
+        // Silently ignore if backend isn't running yet
+        console.log("Backend config not available yet:", e);
+      });
     // Load pomodoro status from localStorage
     const savedPomodoro = localStorage.getItem("focus-wizard-pomodoro-status");
     if (savedPomodoro) {
@@ -331,6 +372,37 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
 
   const handleQuitApp = () => {
     window.focusWizard?.quitApp();
+  };
+
+  const handleRewardPerCycleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (value === "") {
+      setSettings({ ...settings, rewardPerCycle: "" as any });
+    } else {
+      const num = parseFloat(value);
+      if (!isNaN(num) && num >= 0 && num <= 1) {
+        setSettings({ ...settings, rewardPerCycle: num });
+      }
+    }
+  };
+
+  const handleRewardPerCycleBlur = async () => {
+    if (Number(settings.rewardPerCycle) < 0) {
+      setSettings({
+        ...settings,
+        rewardPerCycle: DEFAULT_SETTINGS.rewardPerCycle,
+      });
+    }
+    // Sync with backend
+    try {
+      await fetch(`${BACKEND_URL}/wallet/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rewardPerCycle: settings.rewardPerCycle }),
+      });
+    } catch (e) {
+      console.error("Failed to update reward config:", e);
+    }
   };
 
   const handleEmployerCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -776,8 +848,8 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
               )}
             </section>
           )}
-          <section>
-            <h3>Solana Wallet</h3>
+          <section className="wallet-section">
+            <h3>💰 Focus Vault</h3>
             {walletLoading && (
               <div className="wallet-status-msg info">
                 Loading wallet status...
@@ -788,20 +860,70 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
             )}
             {walletStatus && (
               <>
-                <div className="wallet-info-row">
-                  <label>Wizard Vault Address</label>
+                {/* Discrepancy warning */}
+                {walletStatus.discrepancySol && Math.abs(walletStatus.discrepancySol) > 0.000001 && (
+                  <div className="wallet-status-msg warning" style={{ marginBottom: '12px', padding: '8px 12px', background: '#3d3520', border: '1px solid #665a30', borderRadius: '6px', fontSize: '0.85em', color: '#e8d68a' }}>
+                    {walletStatus.discrepancySol > 0
+                      ? `Note: ${walletStatus.discrepancySol.toFixed(6)} SOL on-chain is not yet tracked. If you deposited externally, use the wallet page to register the deposit.`
+                      : `Note: Tracked balance exceeds on-chain by ${Math.abs(walletStatus.discrepancySol).toFixed(6)} SOL (likely transaction fees).`
+                    }
+                  </div>
+                )}
+                {/* Earned Balance - Prominent Display */}
+                <div className="wallet-balance-card earned">
+                  <div className="wallet-balance-label">✨ AVAILABLE TO WITHDRAW</div>
+                  <div className="wallet-balance-amount">
+                    {(walletStatus.earnedBalanceSol || 0).toFixed(4)} <span className="sol-unit">SOL</span>
+                  </div>
+                  <div className="wallet-balance-usd">
+                    ≈ ${(walletStatus.earnedBalanceUsd || 0).toFixed(2)} USD
+                  </div>
+                </div>
+
+                {/* Vault Balance - Locked */}
+                <div className="wallet-balance-card vault">
+                  <div className="wallet-balance-label">🔒 IN VAULT (Complete pomodoro cycles to unlock)</div>
+                  <div className="wallet-balance-amount vault-amount">
+                    {(walletStatus.vaultBalanceSol || 0).toFixed(4)} <span className="sol-unit">SOL</span>
+                  </div>
+                  <div className="wallet-balance-usd vault-usd">
+                    ≈ ${(walletStatus.vaultBalanceUsd || 0).toFixed(2)} USD
+                  </div>
+                  <div className="wallet-unlock-info">
+                    {(walletStatus.vaultBalanceSol || 0) > 0 && (
+                      <span>
+                        Complete a cycle to unlock {(walletStatus.rewardPerCycle || 0.01).toFixed(4)} SOL 
+                        (${(walletStatus.rewardPerCycleUsd || 0).toFixed(2)} USD)
+                      </span>
+                    )}
+                    {walletStatus.vaultBalanceSol === 0 && (
+                      <span>Deposit SOL to start earning through focus sessions</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Total Stats */}
+                <div className="wallet-stats-row">
+                  <div className="wallet-stat">
+                    <span className="wallet-stat-label">Total Balance</span>
+                    <span className="wallet-stat-value">{(walletStatus.totalBalanceSol || 0).toFixed(4)} SOL</span>
+                    <span className="wallet-stat-usd">${(walletStatus.totalBalanceUsd || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="wallet-stat">
+                    <span className="wallet-stat-label">Cycles Completed</span>
+                    <span className="wallet-stat-value cycles">{walletStatus.totalCyclesCompleted || 0}</span>
+                  </div>
+                </div>
+
+                <div className="wallet-info-row compact">
+                  <label>Vault Address</label>
                   <div className="wallet-address-display">
-                    {walletStatus.vaultAddress}
+                    {walletStatus.vaultAddress || "Loading..."}
                   </div>
                 </div>
-                <div className="wallet-info-row">
-                  <label>Vault Balance</label>
-                  <div className="wallet-balance-display">
-                    {walletStatus.vaultBalanceSol.toFixed(4)} SOL
-                  </div>
-                </div>
+                
                 {walletStatus.connectedWallet && (
-                  <div className="wallet-info-row">
+                  <div className="wallet-info-row compact">
                     <label>Connected Wallet</label>
                     <div className="wallet-address-display">
                       {walletStatus.connectedWallet}
@@ -810,6 +932,33 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                 )}
               </>
             )}
+            
+            {/* Reward Configuration */}
+            <div className="wallet-config-section">
+              <label className="wallet-config-label">
+                Reward per Pomodoro Cycle
+              </label>
+              <div className="wallet-config-input-group">
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.001"
+                  value={settings.rewardPerCycle}
+                  onChange={handleRewardPerCycleChange}
+                  onBlur={handleRewardPerCycleBlur}
+                  className="wallet-config-input"
+                />
+                <span className="wallet-config-unit">SOL</span>
+                <span className="wallet-config-usd">
+                  ≈ ${(settings.rewardPerCycle * (walletStatus?.solToUsdRate || 87.40)).toFixed(2)} USD
+                </span>
+              </div>
+              <p className="wallet-config-hint">
+                How much SOL you earn each time you complete a full pomodoro focus cycle
+              </p>
+            </div>
+            
             <div className="wallet-actions">
               <button
                 className="settings-button primary"
