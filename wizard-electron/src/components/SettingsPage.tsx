@@ -86,6 +86,7 @@ interface SettingsPageProps {
 interface PomodoroStatus {
   enabled: boolean;
   isRunning: boolean;
+  isPaused: boolean;
   timeRemaining: number;
   mode: "work" | "break";
   iteration: number;
@@ -136,6 +137,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
   const [pomodoroStatus, setPomodoroStatus] = useState<PomodoroStatus>({
     enabled: false,
     isRunning: false,
+    isPaused: false,
     timeRemaining: 0,
     mode: "work",
     iteration: 1,
@@ -579,14 +581,13 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     }
   };
 
-  const handlePomodoroToggle = () => {
-    const newEnabled = !settings.pomodoroEnabled;
-    setSettings({ ...settings, pomodoroEnabled: newEnabled });
-    // Update pomodoro status
-    const newStatus = {
-      ...pomodoroStatus,
-      enabled: newEnabled,
-      isRunning: newEnabled,
+  const handlePomodoroStart = () => {
+    const newSettings = { ...settings, pomodoroEnabled: true };
+    setSettings(newSettings);
+    const newStatus: PomodoroStatus = {
+      enabled: true,
+      isRunning: true,
+      isPaused: false,
       timeRemaining: settings.pomodoroWorkMinutes * 60,
       mode: "work" as const,
       iteration: 1,
@@ -594,8 +595,63 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
     };
     setPomodoroStatus(newStatus);
     localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
-    localStorage.setItem("focus-wizard-settings", JSON.stringify({ ...settings, pomodoroEnabled: newEnabled }));
+    localStorage.setItem("focus-wizard-settings", JSON.stringify(newSettings));
   };
+
+  const handlePomodoroPause = () => {
+    const newStatus: PomodoroStatus = {
+      ...pomodoroStatus,
+      isPaused: true,
+    };
+    setPomodoroStatus(newStatus);
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
+  };
+
+  const handlePomodoroResume = () => {
+    const newStatus: PomodoroStatus = {
+      ...pomodoroStatus,
+      isPaused: false,
+    };
+    setPomodoroStatus(newStatus);
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
+  };
+
+  const handlePomodoroRestart = () => {
+    const newStatus: PomodoroStatus = {
+      enabled: true,
+      isRunning: true,
+      isPaused: false,
+      timeRemaining: settings.pomodoroWorkMinutes * 60,
+      mode: "work" as const,
+      iteration: 1,
+      totalIterations: settings.pomodoroIterations,
+    };
+    setPomodoroStatus(newStatus);
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
+  };
+
+  const handlePomodoroStop = () => {
+    const newSettings = { ...settings, pomodoroEnabled: false };
+    setSettings(newSettings);
+    const newStatus: PomodoroStatus = {
+      enabled: false,
+      isRunning: false,
+      isPaused: false,
+      timeRemaining: 0,
+      mode: "work" as const,
+      iteration: 1,
+      totalIterations: settings.pomodoroIterations,
+    };
+    setPomodoroStatus(newStatus);
+    localStorage.setItem("focus-wizard-pomodoro-status", JSON.stringify(newStatus));
+    localStorage.setItem("focus-wizard-settings", JSON.stringify(newSettings));
+  };
+
+  // Determine the pomodoro control state
+  const isPomodoroRunning = pomodoroStatus.enabled && pomodoroStatus.isRunning && !pomodoroStatus.isPaused;
+  const isPomodoroPaused = pomodoroStatus.enabled && pomodoroStatus.isRunning && pomodoroStatus.isPaused;
+  const isPomodoroComplete = pomodoroStatus.enabled && !pomodoroStatus.isRunning && pomodoroStatus.timeRemaining === 0;
+  const isPomodoroActive = pomodoroStatus.enabled && pomodoroStatus.isRunning; // running or paused
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(Math.abs(seconds) / 60);
@@ -672,9 +728,19 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
           <h2>{isSetup ? "WIZARD SETUP" : "WIZARD SETTINGS"}</h2>
           {pomodoroStatus.enabled && (
             <div className="pomodoro-status-header">
-              <div className={`pomodoro-indicator ${pomodoroStatus.isRunning ? "running" : "paused"}`} />
-              <span className="pomodoro-mode">{pomodoroStatus.mode === "work" ? "Focus" : "Rest"}</span>
-              <span className="pomodoro-timer">{formatTime(pomodoroStatus.timeRemaining)}</span>
+              <div className={`pomodoro-indicator ${
+                isPomodoroComplete ? "complete" :
+                isPomodoroPaused ? "paused" :
+                pomodoroStatus.isRunning ? "running" : "paused"
+              }`} />
+              <span className="pomodoro-mode">
+                {isPomodoroComplete ? "Done" :
+                 isPomodoroPaused ? "Paused" :
+                 pomodoroStatus.mode === "work" ? "Focus" : "Rest"}
+              </span>
+              {!isPomodoroComplete && (
+                <span className="pomodoro-timer">{formatTime(pomodoroStatus.timeRemaining)}</span>
+              )}
               <span className="pomodoro-iteration">{pomodoroStatus.iteration}/{pomodoroStatus.totalIterations}</span>
             </div>
           )}
@@ -684,16 +750,40 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
           <section className="settings-section">
             <div className="settings-section-header">
               <h3>Pomodoro Timer</h3>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={settings.pomodoroEnabled}
-                  onChange={handlePomodoroToggle}
-                />
-                <span className="toggle-slider" />
-              </label>
+              <div className="pomodoro-controls">
+                {isPomodoroRunning ? (
+                  <>
+                    <button className="pomodoro-btn pomodoro-btn-pause" onClick={handlePomodoroPause}>
+                      Pause
+                    </button>
+                    <button className="pomodoro-btn pomodoro-btn-stop" onClick={handlePomodoroStop}>
+                      Stop
+                    </button>
+                  </>
+                ) : isPomodoroPaused ? (
+                  <>
+                    <button className="pomodoro-btn pomodoro-btn-start" onClick={handlePomodoroResume}>
+                      Resume
+                    </button>
+                    <button className="pomodoro-btn pomodoro-btn-restart" onClick={handlePomodoroRestart}>
+                      Restart
+                    </button>
+                    <button className="pomodoro-btn pomodoro-btn-stop" onClick={handlePomodoroStop}>
+                      Stop
+                    </button>
+                  </>
+                ) : isPomodoroComplete ? (
+                  <button className="pomodoro-btn pomodoro-btn-start" onClick={handlePomodoroStart}>
+                    Restart
+                  </button>
+                ) : (
+                  <button className="pomodoro-btn pomodoro-btn-start" onClick={handlePomodoroStart}>
+                    Start
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="settings-field">
+            <div className={`settings-field ${isPomodoroActive ? "disabled" : ""}`}>
               <label htmlFor="work-minutes">Focus Time (minutes)</label>
               <input
                 id="work-minutes"
@@ -703,9 +793,10 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                 value={settings.pomodoroWorkMinutes}
                 onChange={handleWorkMinutesChange}
                 onBlur={handleWorkMinutesBlur}
+                disabled={isPomodoroActive}
               />
             </div>
-            <div className="settings-field">
+            <div className={`settings-field ${isPomodoroActive ? "disabled" : ""}`}>
               <label htmlFor="break-minutes">Rest Time (minutes)</label>
               <input
                 id="break-minutes"
@@ -715,9 +806,10 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                 value={settings.pomodoroBreakMinutes}
                 onChange={handleBreakMinutesChange}
                 onBlur={handleBreakMinutesBlur}
+                disabled={isPomodoroActive}
               />
             </div>
-            <div className="settings-field">
+            <div className={`settings-field ${isPomodoroActive ? "disabled" : ""}`}>
               <label htmlFor="iterations">Number of Iterations</label>
               <input
                 id="iterations"
@@ -727,6 +819,7 @@ export function SettingsPage({ mode = "settings" }: SettingsPageProps) {
                 value={settings.pomodoroIterations}
                 onChange={handleIterationsChange}
                 onBlur={handleIterationsBlur}
+                disabled={isPomodoroActive}
               />
             </div>
           </section>
