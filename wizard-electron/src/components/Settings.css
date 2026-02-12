@@ -62,6 +62,8 @@
   height: 0;
   transform: translate(-50%, -50%);
   animation: sparkle-spew 1s ease-out forwards;
+  --offset-x: 0px;
+  --offset-y: 0px;
 }
 
 .sparkle-click::before {
