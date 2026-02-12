@@ -1,31 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useWebcam } from "../hooks/useWebcam";
-import {
-  type GetAttentivenessRequest,
-  getAttentivenessResponseSchema,
-} from "@shared/productivitySchemas";
+import { useCallback, useEffect, useState } from "react";
 import "./Settings.css";
-
-interface FocusData {
-  state:
-    | "focused"
-    | "distracted"
-    | "drowsy"
-    | "stressed"
-    | "away"
-    | "talking"
-    | "unknown";
-  focus_score: number;
-  face_detected: boolean;
-  is_talking: boolean;
-  is_blinking: boolean;
-  blink_rate_per_min: number;
-  gaze_x: number;
-  gaze_y: number;
-  has_gaze: boolean;
-  pulse_bpm: number;
-  breathing_bpm: number;
-}
 
 export interface SettingsData {
   pomodoroWorkMinutes: number | "";
@@ -93,8 +67,8 @@ interface WalletStatus {
   discrepancySol?: number;  // Difference between on-chain and tracked balances
 }
 
-const BACKEND_URL = "http://localhost:8000";
-const ATTENTIVENESS_ENDPOINT = `${BACKEND_URL}/getAttentiveness`;
+// API Configuration - can be overridden via environment variable
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 interface PomodoroStatus {
   enabled: boolean;
@@ -127,31 +101,10 @@ export function SettingsPage() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [clickSparkles, setClickSparkles] = useState<ClickSparkle[]>([]);
 
-  const [focusData, setFocusData] = useState<FocusData | null>(null);
-  const [bridgeStatus, setBridgeStatus] = useState<string>("Not started");
-  const [bridgeReady, setBridgeReady] = useState(false);
-  const [authError, setAuthError] = useState(false);
-  const webcamPreviewRef = useRef<HTMLVideoElement>(null);
-
   const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
 
-  const [attentiveness, setAttentiveness] = useState<number | null>(null);
-  const [attentivenessError, setAttentivenessError] = useState<string | null>(
-    null,
-  );
-  const attentivenessInFlightRef = useRef(false);
-  const latestFocusDataRef = useRef<FocusData | null>(null);
-  const latestBridgeStatusRef = useRef<string>(bridgeStatus);
-
-  useEffect(() => {
-    latestFocusDataRef.current = focusData;
-  }, [focusData]);
-
-  useEffect(() => {
-    latestBridgeStatusRef.current = bridgeStatus;
-  }, [bridgeStatus]);
   const [pomodoroStatus, setPomodoroStatus] = useState<PomodoroStatus>({
     enabled: false,
     isRunning: false,
@@ -161,37 +114,6 @@ export function SettingsPage() {
     iteration: 1,
     totalIterations: 4,
   });
-
-  // Webcam capture - start immediately when dev mode is on (before bridge)
-  const { stream, isActive: webcamActive, error: webcamError } = useWebcam({
-    width: 640,
-    height: 480,
-    fps: 0.5, // 1 frame every 2 seconds
-    quality: 0.80,
-    enabled: settings.devMode, // Start webcam as soon as dev mode enabled
-    dutyCycle: { onMs: 0, offMs: 0 },
-  });
-
-  // Connect stream to preview video element
-  useEffect(() => {
-    const videoEl = webcamPreviewRef.current;
-    if (videoEl && stream && videoEl.srcObject !== stream) {
-      console.log("[SettingsPage] Connecting stream to preview video");
-      videoEl.srcObject = stream;
-      videoEl.play().catch((err) => {
-        // Can happen during rapid remounts/navigation (e.g. React.StrictMode)
-        if (
-          err?.name === "AbortError" ||
-          String(err?.message || "").includes(
-            "The play() request was interrupted by a new load request",
-          )
-        ) {
-          return;
-        }
-        console.error("[SettingsPage] Failed to play video:", err);
-      });
-    }
-  }, [stream, webcamActive]);
 
   // Save settings whenever they change (for devMode to persist)
   // Only save after initial load to avoid overwriting persisted settings with defaults
@@ -303,189 +225,6 @@ export function SettingsPage() {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [fetchWalletStatus]);
 
-  // Fetch attentiveness score from Deno backend every 1s (strict interval)
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!settings.devMode) {
-      setAttentiveness(null);
-      setAttentivenessError(null);
-      return;
-    }
-
-    const runOnce = async () => {
-      if (cancelled) return;
-      if (attentivenessInFlightRef.current) return;
-
-      const currentFocusData = latestFocusDataRef.current;
-      if (!currentFocusData) {
-        setAttentiveness(null);
-        return;
-      }
-
-      attentivenessInFlightRef.current = true;
-      try {
-        setAttentivenessError(null);
-        const payload: GetAttentivenessRequest = {
-          gaze_x: currentFocusData.gaze_x,
-          gaze_y: currentFocusData.gaze_y,
-          bridgeStatus: latestBridgeStatusRef.current,
-          capturedAt: new Date().toISOString(),
-        };
-
-        const resp = await fetch(ATTENTIVENESS_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!resp.ok) {
-          throw new Error(`Backend error: ${resp.status}`);
-        }
-
-        const json = await resp.json();
-        const parsed = getAttentivenessResponseSchema.safeParse(json);
-        if (!parsed.success) {
-          throw new Error("Invalid backend response");
-        }
-
-        if (!cancelled) setAttentiveness(parsed.data.attentiveness);
-      } catch (e) {
-        if (!cancelled) {
-          setAttentiveness(null);
-          setAttentivenessError(
-            e instanceof Error ? e.message : "Failed to fetch attentiveness",
-          );
-        }
-      } finally {
-        attentivenessInFlightRef.current = false;
-      }
-    };
-
-    void runOnce();
-    const intervalId = window.setInterval(() => {
-      void runOnce();
-    }, 1000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [settings.devMode]);
-
-  // Subscribe to bridge events
-  useEffect(() => {
-    const api = window.wizardAPI;
-    if (!api) return;
-
-    // Check initial bridge status on mount
-    api.getBridgeStatus().then(
-      (status: { running: boolean; status?: string }) => {
-        if (status.running) {
-          setBridgeReady(true);
-          setBridgeStatus(status.status || "Bridge ready");
-        } else {
-          setBridgeReady(false);
-          setBridgeStatus(status.status || "Bridge stopped");
-        }
-      },
-    ).catch(() => {
-      setBridgeReady(false);
-      setBridgeStatus("Bridge not initialized");
-    });
-
-    const unsubs = [
-      api.onFocus((data: unknown) => {
-        console.log("[SettingsPage] Focus data received:", data);
-        setFocusData(data as FocusData);
-      }),
-      api.onMetrics((data: unknown) => {
-        console.log("[SettingsPage] Metrics data received:", data);
-        // Merge metrics into focus data if available
-        if (data && typeof data === "object") {
-          setFocusData((prev) => ({ ...prev, ...(data as Record<string, unknown>) } as FocusData));
-        }
-      }),
-      api.onStatus((s: string) => setBridgeStatus(s)),
-      api.onReady(() => {
-        setBridgeReady(true);
-        setBridgeStatus("Bridge ready");
-        setAuthError(false); // Clear auth error on successful start
-      }),
-      api.onError((msg: string) => {
-        console.error("[SettingsPage] Bridge error:", msg);
-        setBridgeStatus(`Error: ${msg}`);
-
-        // Check if it's an authentication/usage error
-        if (
-          msg.includes("Authentication failed") ||
-          msg.includes("usage_available") ||
-          msg.includes("Usage verification failed")
-        ) {
-          setAuthError(true);
-          setBridgeReady(false);
-          setBridgeStatus(
-            "⚠️ API credits exhausted. Please add more usage credits to your SmartSpectra account.",
-          );
-        } else {
-          setBridgeReady(false);
-        }
-      }),
-      api.onClosed(() => {
-        setBridgeReady(false);
-        if (!authError) {
-          setBridgeStatus("Bridge stopped");
-        }
-      }),
-    ];
-
-    return () => {
-      unsubs.forEach((unsub) => unsub());
-    };
-  }, [authError]);
-
-  // Start/stop bridge based on dev mode and webcam status
-  useEffect(() => {
-    const api = window.wizardAPI;
-    if (!api) {
-      console.error("[SettingsPage] wizardAPI not available");
-      return;
-    }
-
-    console.log(
-      `[SettingsPage] Dev mode: ${settings.devMode}, Webcam active: ${webcamActive}`,
-    );
-
-    if (settings.devMode && webcamActive && !authError) {
-      // Only start bridge after webcam is actively capturing and no auth error
-      console.log("[SettingsPage] Starting bridge...");
-      // Check if Docker is available first
-      api.checkDocker().then(({ available }: { available: boolean }) => {
-        if (available) {
-          console.log(
-            "[SettingsPage] Docker available, waiting 500ms then starting bridge",
-          );
-          // Small delay to ensure frames are being written
-          setTimeout(() => {
-            api.startBridge().catch((err: Error) => {
-              console.error("Failed to start bridge:", err);
-              setBridgeStatus(`Failed to start: ${err.message}`);
-            });
-          }, 500);
-        } else {
-          console.error("[SettingsPage] Docker not available");
-          setBridgeStatus("Docker not available");
-        }
-      });
-    } else {
-      // Stop bridge when dev mode is disabled
-      if (bridgeReady) {
-        console.log("[SettingsPage] Stopping bridge");
-        api.stopBridge();
-      }
-    }
-  }, [settings.devMode, webcamActive, bridgeReady, authError]);
-
   const handleCloseMenu = () => {
     // Persist immediately in case the user closes right after a change.
     const sanitized: SettingsData = {
@@ -503,8 +242,6 @@ export function SettingsPage() {
       window.close();
     }
   };
-
-
 
   const handleQuitApp = () => {
     window.focusWizard?.quitApp();
@@ -539,7 +276,6 @@ export function SettingsPage() {
       console.error("Failed to update reward config:", e);
     }
   };
-
 
   const handleWorkMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -877,194 +613,6 @@ export function SettingsPage() {
             </div>
           </section>
 
-
-          <section className="settings-section">
-            <div className="settings-section-header">
-              <h3>Developer Settings</h3>
-              <label className="toggle-switch">
-                <input
-                  id="dev-mode"
-                  type="checkbox"
-                  checked={settings.devMode}
-                  onChange={(e) => {
-                    setSettings({ ...settings, devMode: e.target.checked });
-                    // Clear auth error when toggling to allow retry after adding credits
-                    setAuthError(false);
-                  }}
-                />
-                <span className="toggle-slider" />
-              </label>
-            </div>
-            <div className="settings-field">
-              <label htmlFor="dev-mode" style={{ cursor: "pointer" }}>
-                Enable Dev Mode (Show Biometric Metrics)
-              </label>
-            </div>
-          </section>
-
-          {settings.devMode && (
-            <section className="settings-section biometrics-section">
-              <h3>🔬 Biometric Monitoring</h3>
-
-              <div className="biometrics-status">
-                <strong>Status:</strong> {bridgeStatus}
-              </div>
-
-              {webcamActive && (
-                <div className="biometrics-grid">
-                  <div className="camera-preview">
-                    <video
-                      ref={webcamPreviewRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      style={{
-                        width: "160px",
-                        height: "120px",
-                        borderRadius: "8px",
-                        border: "2px solid #8b6bb7",
-                        objectFit: "cover",
-                        backgroundColor: "#000",
-                      }}
-                    />
-                    <div className="camera-label">Camera</div>
-                  </div>
-
-                  {focusData && (
-                    <div className="metrics-grid">
-                      {/* <div className="metric-item">
-                        <div className="metric-label">Pulse</div>
-                        <div className="metric-value">
-                          {focusData.pulse_bpm > 0
-                            ? `${focusData.pulse_bpm.toFixed(1)} BPM`
-                            : `N/A (${focusData.pulse_bpm})`}
-                        </div>
-                      </div>
-
-                      <div className="metric-item">
-                        <div className="metric-label">Breathing</div>
-                        <div className="metric-value">
-                          {focusData.breathing_bpm > 0
-                            ? `${focusData.breathing_bpm.toFixed(1)} BPM`
-                            : `N/A (${focusData.breathing_bpm})`}
-                        </div>
-                      </div> */}
-
-                      <div className="metric-item">
-                        <div className="metric-label">Face Found</div>
-                        <div className="metric-value">
-                          {bridgeStatus === "No faces found."
-                            ? "✗ No"
-                            : "✓ Yes"}
-                          {/* scuffed up, but hey at least a human wrote this */}
-                        </div>
-                      </div>
-
-                      <div className="metric-item">
-                        <div className="metric-label">Is Away</div>
-                        <div className="metric-value">
-                          {bridgeStatus === "No issues detected."
-                            ? "✗ No"
-                            : "✓ Yes"}{" "}
-                          {/* scuffed up? yeah. works? also yeah */}
-                        </div>
-                      </div>
-
-                      <div className="metric-item">
-                        <div className="metric-label">Is Talking</div>
-                        <div className="metric-value">
-                          {focusData.is_talking ? "✓ Yes" : `✗ No`}
-                        </div>
-                      </div>
-
-                      {/* <div className="metric-item">
-                        <div className="metric-label">Blink Rate</div>
-                        <div className="metric-value">
-                          {focusData.blink_rate_per_min > 0
-                            ? `${focusData.blink_rate_per_min.toFixed(1)}/min`
-                            : `N/A (${focusData.blink_rate_per_min})`}
-                        </div>
-                      </div> */}
-
-                      <div className="metric-item">
-                        <div className="metric-label">Gaze</div>
-                        <div className="metric-value">
-                          {
-                              Number.isFinite(focusData.gaze_x) &&
-                              Number.isFinite(focusData.gaze_y)
-                              ? (focusData.gaze_x > .8 || focusData.gaze_x < -.8 || focusData.gaze_y > .8 || focusData.gaze_y < -.8) ? 
-                                `Dosing off` : `Locked in`
-                            // ? `(${focusData.gaze_x.toFixed(2)}, ${
-                            //   focusData.gaze_y.toFixed(2)
-                            // })`
-                            : ""}
-                        </div>
-                      </div>
-
-                      <div className="metric-item">
-                        <div className="metric-label">Attentiveness</div>
-                        <div className="metric-value">
-                          {attentivenessError
-                            ? `ERR`
-                            : attentiveness === null
-                            ? "--"
-                            : attentiveness.toFixed(2)}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {focusData && (
-                    <details
-                      style={{
-                        marginTop: "1rem",
-                        fontSize: "0.8rem",
-                        color: "#aaa",
-                      }}
-                    >
-                      <summary style={{ cursor: "pointer" }}>
-                        Debug: Raw Data
-                      </summary>
-                      <pre
-                        style={{
-                          background: "#1a1a1a",
-                          padding: "8px",
-                          borderRadius: "4px",
-                          overflow: "auto",
-                          maxHeight: "200px",
-                          fontSize: "0.7rem",
-                        }}
-                      >
-                        {JSON.stringify(focusData, null, 2)}
-                      </pre>
-                    </details>
-                  )}
-
-                  {!focusData && (
-                    <div className="metrics-loading">
-                      <p>Waiting for biometric data...</p>
-                    </div>
-                  )}
-
-                  {webcamError && (
-                    <div className="metrics-error">
-                      <p>⚠️ Webcam Error: {webcamError}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!bridgeReady && settings.devMode && (
-                <div className="biometrics-loading">
-                  <p>Starting biometric monitoring...</p>
-                  <p style={{ fontSize: "0.9em", opacity: 0.8 }}>
-                    This may take a moment on first run while Docker image
-                    builds.
-                  </p>
-                </div>
-              )}
-            </section>
-          )}
           <section className="wallet-section">
             <h3>💰 Focus Vault</h3>
             {walletLoading && (
