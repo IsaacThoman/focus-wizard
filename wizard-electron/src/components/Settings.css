@@ -464,18 +464,6 @@
   gap: 16px;
 }
 
-.camera-preview {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.camera-label {
-  font-family: monospace;
-  color: #f4d58d;
-  font-size: 12px;
-}
 /* Solana Wallet Section */
 .wallet-status-msg {
   font-size: 12px;

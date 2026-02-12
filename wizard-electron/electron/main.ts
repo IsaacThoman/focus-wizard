@@ -12,8 +12,6 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
-import { BridgeManager, FocusData } from "./bridge-manager";
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // The built directory structure
@@ -39,7 +37,6 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let win: BrowserWindow | null = null;
 let settingsWin: BrowserWindow | null = null;
 let spellOverlayWin: BrowserWindow | null = null;
-let bridge: BridgeManager | null = null;
 let isQuitting = false;
 
 // ── Wizard hop-around effect (when spell fireworks are active) ───────────────
@@ -214,7 +211,7 @@ function createSettingsWindow(shouldShow: boolean = true) {
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
       autoplayPolicy: "no-user-gesture-required",
-      // Keep webcam/duty-cycle timers stable even when the window is hidden.
+      // Keep screenshot capture timers stable even when the window is hidden.
       backgroundThrottling: false,
     },
   });
@@ -292,7 +289,6 @@ function createWindow() {
 // explicitly with Cmd + Q.
 app.on("window-all-closed", () => {
   stopWizardHopAround();
-  bridge?.stop();
   if (process.platform !== "darwin") {
     app.quit();
     win = null;
@@ -527,7 +523,6 @@ function dismissSpellOverlay() {
 app.on("before-quit", () => {
   isQuitting = true;
   stopWizardHopAround();
-  bridge?.stop();
 });
 
 app.whenReady().then(() => {
@@ -591,138 +586,15 @@ ipcMain.handle("focus-wizard:hide-window", () => {
   }
 });
 
-// ── Bridge IPC Handlers ──────────────────────────────────-
-
-async function startBridge(): Promise<void> {
-  const apiKey = process.env.SMARTSPECTRA_API_KEY || "";
-
-  const broadcastToWindows = (channel: string, ...args: unknown[]) => {
-    const targets = [win, settingsWin].filter(
-      (w): w is Electron.BrowserWindow => Boolean(w && !w.isDestroyed()),
-    );
-    for (const target of targets) {
-      try {
-        target.webContents.send(channel, ...args);
-      } catch (err) {
-        // Can happen during hot reload when the renderer frame is already disposed.
-        // Avoid spamming the console and keep the main process healthy.
-        if (VITE_DEV_SERVER_URL) {
-          continue;
-        }
-        console.warn("[Main] Failed to broadcast IPC:", channel, err);
-      }
-    }
-  };
-
-  if (!apiKey) {
-    console.warn("[Main] No SMARTSPECTRA_API_KEY set — bridge will not start.");
-    console.warn(
-      "[Main] Set it in your environment or pass it via the app settings.",
-    );
-    broadcastToWindows(
-      "bridge:error",
-      "No SMARTSPECTRA_API_KEY set. Please configure your API key.",
-    );
-    return;
-  }
-
-  bridge = new BridgeManager({ apiKey, mode: "docker" });
-
-  bridge.on("ready", () => {
-    console.log("[Main] Bridge is ready!");
-    broadcastToWindows("bridge:ready");
-  });
-
-  bridge.on("focus", (data: FocusData) => {
-    broadcastToWindows("bridge:focus", data);
-  });
-
-  bridge.on("metrics", (data: Record<string, unknown>) => {
-    broadcastToWindows("bridge:metrics", data);
-  });
-
-  bridge.on("edge", (data: Record<string, unknown>) => {
-    broadcastToWindows("bridge:edge", data);
-  });
-
-  bridge.on("status", (status: string) => {
-    console.log(`[Main] Bridge status: ${status}`);
-    broadcastToWindows("bridge:status", status);
-  });
-
-  bridge.on("bridge-error", (message: string) => {
-    console.error(`[Main] Bridge error: ${message}`);
-    broadcastToWindows("bridge:error", message);
-  });
-
-  bridge.on("close", (code: number) => {
-    console.log(`[Main] Bridge exited with code ${code}`);
-    broadcastToWindows("bridge:closed", code);
-  });
-
-  try {
-    await bridge.start();
-  } catch (err) {
-    console.error("[Main] Failed to start bridge:", err);
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    broadcastToWindows("bridge:error", errorMsg);
-  }
-}
-// keep all above
-
-ipcMain.handle("bridge:start", async (_event, apiKey?: string) => {
-  if (apiKey) {
-    process.env.SMARTSPECTRA_API_KEY = apiKey;
-  }
-  if (bridge?.running) {
-    return { success: true, message: "Bridge already running" };
-  }
-  await startBridge();
-  return { success: true };
-});
-
-ipcMain.handle("bridge:stop", async () => {
-  bridge?.stop();
-  return { success: true };
-});
-
-ipcMain.handle("bridge:status", async () => {
-  return {
-    running: bridge?.running ?? false,
-  };
-});
-
-ipcMain.handle("docker:check", async () => {
-  return { available: BridgeManager.isDockerAvailable() };
-});
-
-ipcMain.on("frame:data", (_event, timestampUs: number, data: unknown) => {
-  const frameWriter = bridge?.frameWriter;
-  if (!frameWriter) {
-    console.warn("[Main] Received frame but frame writer not initialized");
-    return;
-  }
-
-  try {
-    const jpegBuffer = Buffer.isBuffer(data)
-      ? data
-      : Buffer.from(data as ArrayBuffer);
-
-    frameWriter.writeFrame(timestampUs, jpegBuffer);
-    console.log(
-      `[Main] Frame written: ${timestampUs}, size: ${jpegBuffer.length} bytes, count: ${frameWriter.count}`,
-    );
-  } catch (err) {
-    console.error("[Main] Error writing frame:", err);
-  }
-});
-
 ipcMain.handle("focus-wizard:quit-app", () => {
   app.quit();
 });
 
+// API Configuration - can be overridden via environment variable
+const API_BASE_URL = process.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 ipcMain.handle("focus-wizard:open-wallet-page", () => {
-  shell.openExternal("http://localhost:8000/wallet");
+  shell.openExternal(`${API_BASE_URL}/wallet`);
 });
 
 // ── ElevenLabs TTS (wizard voice) ─────────────────────────
@@ -780,11 +652,18 @@ ipcMain.handle(
             }`,
           } as const;
         }
-        const voicesJson = (await voicesResp.json().catch(() => null)) as any;
+        interface ElevenLabsVoice {
+          voice_id: string;
+          name: string;
+        }
+        interface ElevenLabsVoicesResponse {
+          voices?: ElevenLabsVoice[];
+        }
+        const voicesJson = (await voicesResp.json().catch(() => null)) as ElevenLabsVoicesResponse | null;
         const first = Array.isArray(voicesJson?.voices)
           ? voicesJson.voices[0]
           : null;
-        const inferred = typeof first?.voice_id === "string" ? first.voice_id : "";
+        const inferred = first?.voice_id ?? "";
         if (!inferred) {
           return {
             ok: false,

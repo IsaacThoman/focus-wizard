@@ -2,15 +2,14 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   type GetProductivityConfidenceRequest,
   getProductivityConfidenceResponseSchema,
-  type GetAttentivenessRequest,
-  getAttentivenessResponseSchema,
 } from "@shared/productivitySchemas";
 import { SpriteManager, SpriteSheet, NumberRenderer } from "./sprites";
 import type { NumberColor } from "./sprites";
 import "./App.css";
 
-const PRODUCTIVITY_ENDPOINT = "http://localhost:8000/getProductivityConfidence";
-const ATTENTIVENESS_ENDPOINT = "http://localhost:8000/getAttentiveness";
+// API Configuration - can be overridden via environment variable
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const PRODUCTIVITY_ENDPOINT = `${API_BASE_URL}/getProductivityConfidence`;
 const CANVAS_WIDTH = 80;
 const CANVAS_HEIGHT = 120;
 const HEAD_START_MS = 15_000;
@@ -20,6 +19,27 @@ const HAPPY_CONFIDENCE_THRESHOLD = 0.8;
 const OFF_TASK_CONFIDENCE_THRESHOLD = 0.5;
 
 export type WizardEmotion = "happy" | "neutral" | "mad";
+
+// TTS result types
+interface TtsSuccessResult {
+  ok: true;
+  url?: string;
+  audio?: Uint8Array | ArrayBuffer | number[] | { type: 'Buffer'; data: number[] } | ArrayBufferView;
+  mimeType?: string;
+}
+
+interface TtsErrorResult {
+  ok: false;
+  error: string;
+}
+
+type TtsResult = TtsSuccessResult | TtsErrorResult;
+
+// Buffer-like object interface
+interface BufferLike {
+  type: 'Buffer';
+  data: number[];
+}
 
 const EMOTION_ROW: Record<WizardEmotion, number> = {
   happy: 1,
@@ -67,17 +87,8 @@ function App() {
   const [, setProductivityConfidence] = useState<
     number | null
   >(null);
-  const [, setAttentiveness] = useState<number | null>(null);
-  const [bridgeStatus, setBridgeStatus] = useState<string>("");
   const productivityConfidenceRef = useRef<number | null>(null);
-  const attentivenessRef = useRef<number | null>(null);
   const lastConfidenceAtRef = useRef<number>(0);
-  const halfAttentiveSinceRef = useRef<number | null>(null);
-  const latestGazeRef = useRef<{ gaze_x: number; gaze_y: number } | null>(null);
-  const attentivenessInFlightRef = useRef(false);
-  const everSeenFaceRef = useRef(false);
-  const lastFaceSeenAtRef = useRef<number>(0);
-  const awayOverrideRef = useRef(false);
   const [emotion, setEmotion] = useState<WizardEmotion>("happy");
   const emotionRef = useRef<WizardEmotion>("happy");
   const lastAngrySpokenAtRef = useRef<number>(0);
@@ -241,45 +252,16 @@ function App() {
   const applyEmotionFromSignals = useCallback((): WizardEmotion => {
     const now = Date.now();
     const conf = productivityConfidenceRef.current;
-    const attn = attentivenessRef.current;
 
     // Head start: give the user a short grace period at session start.
     // During this window, don't let any signals force negative emotion.
     if (now - sessionStartAtRef.current < HEAD_START_MS) {
-      halfAttentiveSinceRef.current = null;
       const nextEmotion: WizardEmotion = "happy";
       setEmotion(nextEmotion);
       return nextEmotion;
     }
 
-    // Away override: if the user is gone, always be mad.
-    if (awayOverrideRef.current) {
-      const nextEmotion: WizardEmotion = "mad";
-      setEmotion(nextEmotion);
-      return nextEmotion;
-    }
-
-    // Attentiveness override rules
-    if (attn === 0) {
-      const nextEmotion: WizardEmotion = "mad";
-      setEmotion(nextEmotion);
-      return nextEmotion;
-    }
-
-    if (attn === 0.5) {
-      if (halfAttentiveSinceRef.current === null) {
-        halfAttentiveSinceRef.current = now;
-      }
-      if (now - halfAttentiveSinceRef.current >= 4000) {
-        const nextEmotion: WizardEmotion = "neutral";
-        setEmotion(nextEmotion);
-        return nextEmotion;
-      }
-    } else {
-      halfAttentiveSinceRef.current = null;
-    }
-
-    // Prefer confidence if it's recent; otherwise fall back to attentiveness.
+    // Use productivity confidence to determine emotion
     const confidenceIsFresh = conf !== null && (now - lastConfidenceAtRef.current) < 15000;
 
     if (confidenceIsFresh) {
@@ -292,20 +274,7 @@ function App() {
       return nextEmotion;
     }
 
-    if (attn === 1) {
-      const nextEmotion: WizardEmotion = "happy";
-      setEmotion(nextEmotion);
-      return nextEmotion;
-    } else if (attn === 0.5) {
-      // If we're here, it hasn't been 4s yet—don't force neutral early.
-      const nextEmotion = emotionRef.current;
-      setEmotion(nextEmotion);
-      return nextEmotion;
-    } else if (attn === 0) {
-      const nextEmotion: WizardEmotion = "mad";
-      setEmotion(nextEmotion);
-      return nextEmotion;
-    }
+    // Default to current emotion if no fresh data
     return emotionRef.current;
   }, []);
 
@@ -326,12 +295,8 @@ function App() {
     const now = Date.now();
 
     const distraction = (() => {
-      if (awayOverrideRef.current) return "vanishing";
-      const attn = attentivenessRef.current;
       const conf = productivityConfidenceRef.current;
 
-      if (attn === 0) return "wandering eyes";
-      if (attn === 0.5) return "daydreaming";
       if (conf !== null && conf < OFF_TASK_CONFIDENCE_THRESHOLD) return "that shiny side-quest";
       return "distractions";
     })();
@@ -375,10 +340,11 @@ function App() {
       let audio: HTMLAudioElement;
       let blobUrl: string | null = null;
 
-      if (typeof (result as any).url === "string") {
-        audio = new Audio((result as any).url);
-      } else if ((result as any).audio != null) {
-        const raw: unknown = (result as any).audio;
+      const ttsResult = result as TtsResult;
+      if (ttsResult.ok && typeof ttsResult.url === "string") {
+        audio = new Audio(ttsResult.url);
+      } else if (ttsResult.ok && ttsResult.audio != null) {
+        const raw: unknown = ttsResult.audio;
 
         const toBytes = (value: unknown): Uint8Array | null => {
           if (value instanceof Uint8Array) return value;
@@ -388,10 +354,10 @@ function App() {
           if (
             typeof value === "object" &&
             value !== null &&
-            (value as any).type === "Buffer" &&
-            Array.isArray((value as any).data)
+            (value as BufferLike).type === "Buffer" &&
+            Array.isArray((value as BufferLike).data)
           ) {
-            return Uint8Array.from((value as any).data);
+            return Uint8Array.from((value as BufferLike).data);
           }
 
           if (Array.isArray(value) && value.every((n) => typeof n === "number")) {
@@ -417,7 +383,7 @@ function App() {
         const audioBytes = new Uint8Array(bytes.byteLength);
         audioBytes.set(bytes);
         const blob = new Blob([audioBytes], {
-          type: (result as any).mimeType || "audio/mpeg",
+          type: ttsResult.mimeType || "audio/mpeg",
         });
         blobUrl = URL.createObjectURL(blob);
         audio = new Audio(blobUrl);
@@ -538,7 +504,7 @@ function App() {
     cycleCompletionInFlightRef.current = true;
 
     try {
-      const response = await fetch("http://localhost:8000/wallet/complete-cycle", {
+      const response = await fetch(`${API_BASE_URL}/wallet/complete-cycle`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -1111,121 +1077,6 @@ function App() {
     };
   }, [applyEmotionFromSignals, speakAngryNudge]);
 
-  // Subscribe to bridge focus + status so we can fetch attentiveness.
-  useEffect(() => {
-    const api = window.wizardAPI;
-    if (!api) return;
-
-    const isRecord = (v: unknown): v is Record<string, unknown> =>
-      v !== null && typeof v === "object";
-
-    const unsubs = [
-      api.onFocus((data: unknown) => {
-        const now = Date.now();
-
-        if (isRecord(data) && data.face_detected === true) {
-          everSeenFaceRef.current = true;
-          lastFaceSeenAtRef.current = now;
-          if (awayOverrideRef.current) {
-            awayOverrideRef.current = false;
-            applyEmotionFromSignals();
-          }
-        }
-
-        if (
-          isRecord(data) &&
-          typeof data.gaze_x === "number" &&
-          typeof data.gaze_y === "number"
-        ) {
-          latestGazeRef.current = { gaze_x: data.gaze_x, gaze_y: data.gaze_y };
-        }
-      }),
-      api.onStatus((s: string) => {
-        setBridgeStatus(s);
-      }),
-    ];
-
-    return () => {
-      unsubs.forEach((u) => u());
-    };
-  }, [applyEmotionFromSignals]);
-
-  // Away detection: if no face for >3s => mad; when face returns => clear override.
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      // Give a grace period after start before we can go "away".
-      if (Date.now() - sessionStartAtRef.current < HEAD_START_MS) return;
-      if (!everSeenFaceRef.current) return;
-
-      const elapsedMs = Date.now() - lastFaceSeenAtRef.current;
-      if (elapsedMs > 3000) {
-        if (!awayOverrideRef.current) {
-          awayOverrideRef.current = true;
-          setEmotion("mad");
-        }
-      }
-    }, 250);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, []);
-
-  // Fetch attentiveness from Deno every second (independent of screenshot logic)
-  useEffect(() => {
-    let cancelled = false;
-
-    const tick = async () => {
-      if (cancelled) return;
-      if (attentivenessInFlightRef.current) return;
-
-      const gaze = latestGazeRef.current;
-      if (!gaze) return;
-
-      attentivenessInFlightRef.current = true;
-      try {
-        const payload: GetAttentivenessRequest = {
-          gaze_x: gaze.gaze_x,
-          gaze_y: gaze.gaze_y,
-          bridgeStatus: bridgeStatus || "unknown",
-          capturedAt: new Date().toISOString(),
-        };
-
-        const resp = await fetch(ATTENTIVENESS_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!resp.ok) return;
-
-        const json = await resp.json();
-        const parsed = getAttentivenessResponseSchema.safeParse(json);
-        if (!parsed.success) return;
-
-        if (!cancelled) {
-          setAttentiveness(parsed.data.attentiveness);
-          attentivenessRef.current = parsed.data.attentiveness;
-          applyEmotionFromSignals();
-        }
-      } catch {
-        // ignore - keep last value
-      } finally {
-        attentivenessInFlightRef.current = false;
-      }
-    };
-
-    void tick();
-    const intervalId = window.setInterval(() => {
-      void tick();
-    }, 1000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [bridgeStatus, applyEmotionFromSignals]);
-
   return (
     <>
       <main className="pixel-stage">
@@ -1244,16 +1095,6 @@ function App() {
             onClick={handleWandAreaClick}
           />
         </div>
-{/* Uncomment this if you want to debug the confidence monitor and the attentivenes monitor */}
-
-
-        {/* <div className="confidence-monitor">
-          Conf: {productivityConfidence === null
-            ? "--"
-            : productivityConfidence.toFixed(2)}
-          {"  "}
-          Attn: {attentiveness === null ? "--" : attentiveness.toFixed(2)}
-        </div> */}
       </main>
     </>
   );

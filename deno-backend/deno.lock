@@ -385,6 +385,13 @@
       "jsr:@std/assert@^1.0.15",
       "npm:@solana/web3.js@^1.98.0",
       "npm:zod@^3.25.76"
-    ]
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:@solana/web3.js@^1.98.4",
+        "npm:@types/node@^25.2.3",
+        "npm:zod@^4.3.6"
+      ]
+    }
   }
 }
